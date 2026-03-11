@@ -6,4 +6,14 @@ A purely physics-based anomaly detection engine for ArduPilot DataFlash (.BIN) l
 
 **Motor Imbalance detection**: Sustained Motor Spread > 300Maximum PWM > 95% of dynamically detected ceilingCondition maintained for $N$ consecutive samples to filter out wind-correction noise
 
-**Real-World Validation**: Successfully parsed a wild ArduCopter forum log (mo_111 crash), bypassing software noise (EKF/Compass errors) to mathematically pinpoint the exact timestamp (269.47 s) of hardware failure.
+**Real Log validation**: Successfully parsed a wild ArduCopter forum log (mo_111 crash), bypassing software noise (EKF/Compass errors) to mathematically pinpoint the exact timestamp (269.47 s) of hardware failure.
+
+### Where development stopped
+
+This version only implements:
+
+- log parsing
+- basic physics checks
+- single anomaly type (motor imbalance)
+
+Next version will restructure the pipeline and add multiple subsystem analyzers (propulsion + power) along with ML based classification.
