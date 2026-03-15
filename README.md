@@ -2,6 +2,8 @@
 
 The Latest Version of the Log Diagnosis Engine: This prototype analyzes ArduPilot flight logs (.BIN) and automatically identifies possible root causes such as motor failure or battery issues using telemetry features and a machine learning model.
 
+(In this Prototype i have only focused on two failures i.e. Motor Failure and Battery Failure.)
+
 ## Current Capabilities
 
 The current prototype can:
