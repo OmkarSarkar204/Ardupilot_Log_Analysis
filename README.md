@@ -260,7 +260,6 @@ A simple physics-based anomaly detection engine.
 Features:
 - log parsing (Hardcoded motor pins(c1-c4), crashed while testing on a real log)
 - asynchronous telemetry handling
-- dynamic hardware profiling
 - motor imbalance detection
 
 ### Version 2
