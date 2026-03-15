@@ -6,13 +6,13 @@ The Latest Version of the Log Diagnosis Engine: This prototype analyzes ArduPilo
 
 The current prototype can:
 
-• Parse ArduPilot .BIN logs using pymavlink  
-• Extract telemetry signals (ATT, BAT, RCOU)
-• Compute mechanical and power features  
-• Detect anomalies in flight behavior  
-• Train a machine learning classifier from labeled logs  
-• Identify potential root causes (motor or battery failure)  
-• Generate a timeline of detected anomalies
+* Parse ArduPilot .BIN logs using pymavlink  
+* Extract telemetry signals (ATT, BAT, RCOU)
+* Compute mechanical and power features  
+* Detect anomalies in flight behavior  
+* Train a machine learning classifier from labeled logs  
+* Identify potential root causes (motor or battery failure)  
+* Generate a timeline of detected anomalies
 
 ## System Architecture
 
@@ -37,7 +37,7 @@ It also identifies which servo channels correspond to motors as different users 
 
 ### Physics Engine
 
-• The physics engine converts raw telemetry signals into a unified flight timeline.
+* The physics engine converts raw telemetry signals into a unified flight timeline.
 ArduPilot logs contain asynchronous telemetry streams:
 
 * `ATT ~50Hz`
@@ -109,9 +109,12 @@ The model predicts likely anomaly types such as motor or battery issues (due to 
 The physics validator performs independent rule-based checks using statistics.
 
 Examples include:
-• motor thrust imbalance detection
-• abnormal voltage sag detection
-• excessive roll error
+
+* motor thrust imbalance detection
+
+* abnormal voltage sag detection
+
+* excessive roll error
 
 Thresholds are calculated dynamically from flight baseline statistics.
 This helps confirm whether a detected anomaly is physically plausible (This is basically acting like a check engine).
@@ -127,11 +130,11 @@ Short transient spikes are filtered to reduce noise.
 * How it works internally:
 if it detects:
 Motor imbalance
-
-`Start: 12.0s
+```
+Start: 12.0s
 End: 15.5s
 Duration: 3.5s 
-`
+```
 
 Consecutive anomaly detections are merged into continuous time windows.
 
@@ -176,9 +179,10 @@ If a vehicle begins the log with a fault, the baseline estimation may be inaccur
 
 The current Random Forest model evaluates individual rows independently.
 
-It does not capture temporal patterns such as:
-•	oscillations
-•	degradation trends
+It does not capture patterns such as:
+*	oscillations
+*	degradation trends
+* vibrations
 
 ### Limited Dataset
 
@@ -190,10 +194,10 @@ Robust generalization requires a larger dataset of real flight failures.
 Current analysis focuses on a small set of derived features.
 
 Future versions should incorporate majority signals including:
-•	VIBE vibration logs
-•	GPS consistency metrics
-•	IMU clipping detection
-•	ESC telemetry
+*	VIBE vibration logs
+*	GPS consistency metrics
+*	IMU clipping detection
+*	ESC telemetry
 
 ### Multi-Vehicle Support
 
@@ -217,17 +221,17 @@ Rover
 ## Long-Term Direction
 
 Future work may extend this prototype through:
-•	Improved model
-•	expanded sensor fusion
-•	integration with Ardupilot tools
+*	Improved model
+*	expanded sensor fusion
+*	integration with Ardupilot tools
 
 ### Knowledge-Based Recommendations
 
 Detected failure events can be mapped to known failure patterns documented in:
 
-• ArduPilot forums  
-• official documentation  
-• troubleshooting guides
+* ArduPilot forums  
+* official documentation  
+* troubleshooting guides
 
 The system can recommend potential fixes and reference relevant documentation.
 
