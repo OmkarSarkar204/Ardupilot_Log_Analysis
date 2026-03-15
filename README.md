@@ -218,7 +218,7 @@ Fixed-wings Planes
 Rover
 * motor imbalance may produces steering drift
 
-## Long-Term Direction
+## Future Work
 
 Future work may extend this prototype through:
 *	Improved model
