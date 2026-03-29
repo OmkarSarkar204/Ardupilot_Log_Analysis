@@ -7,7 +7,7 @@ Three versions were built during this phase. Version 3 was locked as the referen
 
 ## Modules
 
-### `parser.py` — Data Extraction
+### `parser.py` - Data Extraction
 
 Reads raw telemetry from `.BIN` log files. Processes logs in a streamed manner to avoid loading entire files into memory, which keeps large log handling efficient.
 
@@ -17,7 +17,7 @@ Reads raw telemetry from `.BIN` log files. Processes logs in a streamed manner t
 
 
 
-### `phy_engine.py` — Feature Generation
+### `phy_engine.py` - Feature Generation
 
 Converts raw telemetry into structured, analysis-ready data. Because sensors log at different rates, direct comparison is unreliable. The module organizes data into fixed time windows and aligns all signals within each window.
 
@@ -66,7 +66,7 @@ else:
 
 
 
-### `validator.py` — Physics Validator
+### `validator.py`  Physics Validator
 
 Performs rule-based detection using the engineered features. Rules are grounded in expected physical behavior and compare control inputs against observed system response.
 
@@ -98,11 +98,11 @@ if voltage_drop > voltage_threshold:
 
 
 
-### `ml_analyser.py` — ML Module
+### `ml_analyser.py`  ML Module
 
 Runs in parallel with the physics validator. Currently implemented using a Random Forest classifier.
 
-Ingests the engineered time-window DataFrame directly from `phy_engine.py` — it does not touch raw logs.
+Ingests the engineered time-window DataFrame directly from `phy_engine.py`  it does not touch raw logs.
 
 - Extracts specific engineered features from the DataFrame
 - Predicts probability of specific failure classes (motor anomaly, battery anomaly)
@@ -139,11 +139,11 @@ if duration > 1.0:
     })
 ```
 
-**Output:** Standardized event array (`start_time`, `end_time`, `event_type`) — identical format to the Physics Validator output, so both feed cleanly into the aggregation stage.
+**Output:** Standardized event array (`start_time`, `end_time`, `event_type`)  identical format to the Physics Validator output, so both feed cleanly into the aggregation stage.
 
 
 
-### `diagnostics.py` — Event Aggregation and Diagnosis
+### `diagnostics.py` - Event Aggregation and Diagnosis
 
 Combines outputs from the Physics Validator and the ML Module. Because both upstream modules produce events in the same format, this layer processes them without needing to know their source.
 
@@ -189,7 +189,7 @@ else:
 
 
 
-### `main.py` — Pipeline Orchestrator
+### `main.py` - Pipeline Orchestrator
 
 Controls data flow across all stages in a fixed sequence.
 
