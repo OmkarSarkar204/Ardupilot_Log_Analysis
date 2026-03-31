@@ -131,15 +131,16 @@ class Fuser:
             return "Motor Failure"
 
 
-
     def format_terminal_report(self, state, events):
 
-        report = ["\nFLIGHT LOG ANALYSIS REPORT",]
+        report = []
 
-        report.append("Flight Timeline")
+        report.append("\nrunning log")
+        report.append("\nFLIGHT LOG ANALYSIS\n")
+        report.append("events:\n")
 
         if not events:
-            report.append("  No sustained anomalies detected.")
+            report.append("no events found")
 
         else:
             for e in events:
@@ -148,13 +149,14 @@ class Fuser:
 
                     src = "ML" if "ml_" in e['event_type'] else "PHY"
 
-                    line = str(round(e["start_time"],1)) + "s --> "
-                    line += str(round(e["end_time"],1)) + "s "
-                    line += src + " " + e["event_type"]
-                    line += " dur " + str(round(e["duration"],1))
+                    line = src + " " + e["event_type"]
+                    line += " " + str(round(e["start_time"], 1))
+                    line += " -> " + str(round(e["end_time"], 1))
+                    line += " dur " + str(round(e["duration"], 1))
 
                     report.append(line)
 
-        report.append(f" ROOT CAUSE: {state.upper()}")
+        report.append("\nresult:\n")
+        report.append(state.lower())
 
         return "\n".join(report)
