@@ -6,6 +6,9 @@ The current working model is in old_versions/Version3
 
 Current developing folder `AI_Assisted_Log_Diagnosis`
 
+Another NOTE: The Version-3 in the main repo contains only a readme for the Proposal
+
+
 
 # AI-Assisted Log Diagnosis for ArduPilot
 
