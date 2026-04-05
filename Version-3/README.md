@@ -1,3 +1,5 @@
+This has been added here to keep the Proposal Tight, It contains the detailed working of the prototype
+
 # Prototype Progress
 
 A working prototype of the diagnostic system was developed during the pre-GSoC period to validate core design decisions. The codebase is functional and open-source, focused on verifying the system architecture. Production-level optimizations, robust error handling, and hardened coding practices will be added during the full development phase.
