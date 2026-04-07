@@ -1,4 +1,4 @@
-This has been added here to keep the Proposal Tight, It contains the detailed working of the prototype
+This has been added here to keep the Proposal Tight, It contains the detailed working of the prototype and it doesnt contains any logic directly from the ArdP codebase like from copter.cpp etc.(Getting rules from codebse was decided later.)
 
 # Prototype Progress
 
