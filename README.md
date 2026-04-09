@@ -82,7 +82,7 @@ All computations remain deterministic and traceable.
   - Sub
 
 
-## Development Plan
+## Future Plan
 
 - Convert existing prototype into modular, callable components
 - Upgrade ML model to sequence-based HMM
@@ -90,8 +90,6 @@ All computations remain deterministic and traceable.
 - Extend support to additional vehicle types
 - Package as an easy-to-use CLI tool
 
-
-## Final Goal
 
 A simple command-line tool that:
 - Runs locally (no internet required)
