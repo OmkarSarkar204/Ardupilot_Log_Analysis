@@ -1,255 +1,135 @@
-[a35d778] - 2026-04-02
+[93b62eb] - 2026-04-13
 Author: Omkar Sarkar
 
 Changes:
-update readme
+added basic sensor class with imu data
 
-View Commit
+[View Commit](https://github.com/OmkarSarkar204/Ardupilot_Log_Analysis/commit/93b62ebeae481807ef85548862faa1841e153ae3)
 
-[2861faf] - 2026-03-31
+[02415e4] - 2026-04-13
 Author: Omkar Sarkar
 
 Changes:
-Update main README
+Added commnets and Todo
 
-View Commit
+[View Commit](https://github.com/OmkarSarkar204/Ardupilot_Log_Analysis/commit/02415e4b89762494338bca6a856c244bbceb46f8)
 
-[8da07af] - 2026-03-31
+[e5efb7c] - 2026-04-09
 Author: Omkar Sarkar
 
 Changes:
-Update main README
+motor analysis started  with mapping
 
-View Commit
+[View Commit](https://github.com/OmkarSarkar204/Ardupilot_Log_Analysis/commit/e5efb7c611d54dd1dcc8eda078e662c686c90ecb)
 
-[4f98473] - 2026-03-31
+[ca0e82f] - 2026-04-09
 Author: Omkar Sarkar
 
 Changes:
-save local work
+Merge pull request #4 from OmkarSarkar204/bin-extraction
 
-View Commit
+[View Commit](https://github.com/OmkarSarkar204/Ardupilot_Log_Analysis/commit/ca0e82fa1ad7c385f023c777be80809be6da61e8)
 
-[1c54b45] - 2026-03-31
+[ff8f3f4] - 2026-04-06
 Author: Omkar Sarkar
 
 Changes:
-Structure correction
+Added new folder inside main
 
-View Commit
+[View Commit](https://github.com/OmkarSarkar204/Ardupilot_Log_Analysis/commit/ff8f3f44bcf9d8441a94f75f6f5c89f0e0017750)
 
-[9c282aa] - 2026-03-29
+[5a4ba9e] - 2026-04-09
 Author: Omkar Sarkar
 
 Changes:
-Update README.md
+min chng
 
-View Commit
+[View Commit](https://github.com/OmkarSarkar204/Ardupilot_Log_Analysis/commit/5a4ba9eae9d581ca37219ec8b9321865143b14df)
 
-[ff9bfeb] - 2026-03-29
+[ef1f9fc] - 2026-04-08
 Author: Omkar Sarkar
 
 Changes:
-Update README.md
+update readme with proposal info
 
-View Commit
+[View Commit](https://github.com/OmkarSarkar204/Ardupilot_Log_Analysis/commit/ef1f9fc937ae95f84ce1cde0654bc794a6ddbb21)
 
-[71281b3] - 2026-03-28
+[60ba596] - 2026-04-06
 Author: Omkar Sarkar
 
 Changes:
-readme update
+Added new folder inside main
 
-View Commit
+[View Commit](https://github.com/OmkarSarkar204/Ardupilot_Log_Analysis/commit/60ba596bb9f06a37c188066ec39af8a4bbcca3d3)
 
-[2012afd] - 2026-03-28
+[4dce86b] - 2026-04-06
 Author: Omkar Sarkar
 
 Changes:
-readme update
+Merge pull request #3 from OmkarSarkar204/bin-extraction
 
-View Commit
+[View Commit](https://github.com/OmkarSarkar204/Ardupilot_Log_Analysis/commit/4dce86bf1e8b31a49d540b2400fe61c1c8cfebe5)
 
-[aa211d1] - 2026-03-16
+[b35c3cf] - 2026-04-05
 Author: Omkar Sarkar
 
 Changes:
-Enhance README
+Add raw .BIN log extraction
 
-View Commit
+[View Commit](https://github.com/OmkarSarkar204/Ardupilot_Log_Analysis/commit/b35c3cf92e0312969d68085222bb07de7c2b86c7)
 
-[2c784ab] - 2026-03-16
+[d1ff130] - 2026-04-05
 Author: Omkar Sarkar
 
 Changes:
-Clean up README by removing extensive content
+updated README
 
-View Commit
+[View Commit](https://github.com/OmkarSarkar204/Ardupilot_Log_Analysis/commit/d1ff130fb3805578f87a7046d508cd11810b08bb)
 
-[8e93f3f] - 2026-03-16
+[72b7df7] - 2026-04-05
 Author: Omkar Sarkar
 
 Changes:
-Update README.md
+updated README
 
-View Commit
+[View Commit](https://github.com/OmkarSarkar204/Ardupilot_Log_Analysis/commit/72b7df724f33c01d9c68da7f250f441f4c681c2d)
 
-[e9e438e] - 2026-03-16
+[af4f704] - 2026-04-05
 Author: Omkar Sarkar
 
 Changes:
-Update README.md
+updated README
 
-View Commit
+[View Commit](https://github.com/OmkarSarkar204/Ardupilot_Log_Analysis/commit/af4f7047a74d73c23e46385b78dff22c9ebce520)
 
-[cf81f79] - 2026-03-16
+[06312bc] - 2026-04-05
 Author: Omkar Sarkar
 
 Changes:
-Update README.md
+ReMade GSoC readme
 
-View Commit
+[View Commit](https://github.com/OmkarSarkar204/Ardupilot_Log_Analysis/commit/06312bc023b58a1152c288c3166a5637d10a760d)
 
-[0848639] - 2026-03-16
+[d04d43f] - 2026-04-05
 Author: Omkar Sarkar
 
 Changes:
-Update section title from 'Long-Term Direction' to 'Future Work'
+Renamed Version-3 to AI_assi
 
-View Commit
+[View Commit](https://github.com/OmkarSarkar204/Ardupilot_Log_Analysis/commit/d04d43f19cc85593d1d6304f0bffe45f27b85412)
 
-[4838731] - 2026-03-16
+[5524dee] - 2026-04-05
 Author: Omkar Sarkar
 
 Changes:
-Change in README
+Changed main folder name and updated README
 
-View Commit
+[View Commit](https://github.com/OmkarSarkar204/Ardupilot_Log_Analysis/commit/5524dee4616ffd6a38a42aa7503622ea37cc04b8)
 
-[8d7eb49] - 2026-03-15
+[3ffb1ad] - 2026-04-05
 Author: Omkar Sarkar
 
 Changes:
-Update README.md
+Create a copy of the working folder to continue working
 
-View Commit
-
-[44fc18f] - 2026-03-15
-Author: Omkar Sarkar
-
-Changes:
-added ss
-
-View Commit
-
-[b744e59] - 2026-03-15
-Author: Omkar Sarkar
-
-Changes:
-Revise README for ArduPilot Log Diagnosis V-3
-
-View Commit
-
-[bdc2d19] - 2026-03-15
-Author: Omkar Sarkar
-
-Changes:
-Add V3 ArduPilot log diagnosis prototype
-
-View Commit
-
-[3f9f7ed] - 2026-03-13
-Author: Omkar Sarkar
-
-Changes:
-v2: hybrid ML + physics detection.
-
-View Commit
-
-[0b0d377] - 2026-03-13
-Author: Omkar Sarkar
-
-Changes:
-v2: hybrid ML + physics detection
-
-View Commit
-
-[373a249] - 2026-03-11
-Author: Omkar Sarkar
-
-Changes:
-updated readme in v1 fldr
-
-View Commit
-
-[f9cf3c0] - 2026-03-11
-Author: Omkar Sarkar
-
-Changes:
-added readme in v1 fldr
-
-View Commit
-
-[1a56e39] - 2026-03-11
-Author: Omkar Sarkar
-
-Changes:
-Remove editor configs and macOS artifacts from repository
-
-View Commit
-
-[f0643e0] - 2026-03-11
-Author: Omkar Sarkar
-
-Changes:
-Prototype version 1 with dynamic parser and seperated physics layer.
-
-View Commit
-
-[94764e2] - 2026-03-11
-Author: Omkar Sarkar
-
-Changes:
-Prototype version 1 with dynamic parser and seperated physics layer
-
-View Commit
-
-[b81b401] - 2026-03-05
-Author: Omkar Sarkar
-
-Changes:
-Update README.md
-
-View Commit
-
-[25b51e4] - 2026-03-05
-Author: Omkar Sarkar
-
-Changes:
-add readme
-
-View Commit
-
-[31cdbf7] - 2026-03-05
-Author: Omkar Sarkar
-
-Changes:
-Delete README.md
-
-View Commit
-
-[034ef83] - 2026-03-05
-Author: Omkar Sarkar
-
-Changes:
-Create README.md
-
-View Commit
-
-[0ce22c1] - 2026-03-05
-Author: Omkar Sarkar
-
-Changes:
-Initial: BIN ingestion and signal extraction(Demo)
-
-View Commit
+[View Commit](https://github.com/OmkarSarkar204/Ardupilot_Log_Analysis/commit/3ffb1ad155b7359ea72265392c5531e995b34734)
