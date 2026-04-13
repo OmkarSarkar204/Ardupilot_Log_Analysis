@@ -202,6 +202,40 @@ class MotorData:
             }
         }
 
+class SensorData:
+    def __init__(self, imu_data=None, vibe_data=None, gyr_data=None, mag_data=None):
+        self.imu_data = imu_data or []
+        self.vibe_data = vibe_data or []
+        self.gyro_data = gyr_data or []
+        self.mag_data = mag_data or []
+
+    def get_imu(self):
+        imu_map = {}
+        
+        for row in self.imu_data:
+            idx = row.get("Instance")
+            if idx is None:
+                idx = row.get("I")
+            if idx is None:
+                idx = 0
+                
+            t = row.get("TimeUS")
+
+            acc = [row.get("AccX"), row.get("AccY"), row.get("AccZ")]
+            gyro = [row.get("GyrX"), row.get("GyrY"), row.get("GyrZ")]
+
+            if t is None or None in acc or None in gyro:
+                continue
+            
+            key = f"IMU_{idx}"
+            imu_map.setdefault(key, []).append({
+                "t": t,
+                "acc": acc,
+                "gyro": gyro
+            })
+            
+        return imu_map
+
 if __name__ == "__main__":
     parser = BinIngest("old_versions/ardupilot-log-analyzer/data/raw_logs/motor_fail_00000082.BIN")
     
