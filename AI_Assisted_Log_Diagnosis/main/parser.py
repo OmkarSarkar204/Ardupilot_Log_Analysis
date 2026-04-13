@@ -3,6 +3,7 @@ import json
 
 
 class BinIngest:
+    """Processing froward only Selected Targets for now"""
     def __init__(self, file_path):
         self.file_path = file_path
         self.connection = mavutil.mavlink_connection(file_path)
@@ -29,6 +30,7 @@ class BinIngest:
 
         self.data = {}
 
+    # Ignoring errors sometimes generated while MAVLink Parsing
     def normalize_value(self, value):
         if isinstance(value, bytes):
             return value.decode("utf-8", errors="ignore")
@@ -36,7 +38,7 @@ class BinIngest:
 
     def reset(self):
         self.connection = mavutil.mavlink_connection(self.file_path)
-
+    # 
     def parse(self):
         count = 0
         self.data = {}
@@ -49,10 +51,14 @@ class BinIngest:
             count += 1
             msgtype = message.get_type()
 
+            # Create containers
             if msgtype not in self.data:
                 self.data[msgtype] = []
+
+            # Store selected signals only for now
             if msgtype in self.targets:
                 try:
+                    # Convert MAVLink data into a dict
                     raw = message.to_dict()
                     clean = {}
                     for k, v in raw.items():
@@ -65,6 +71,7 @@ class BinIngest:
 
         return count
 
+    # microseconds to seconds
     @staticmethod
     def norm_time(data):
         for signal in data:
@@ -86,7 +93,8 @@ class BinIngest:
             json.dump(parsed_data, f, indent=2)
 
 
-class MotorMap:
+class MotorData:
+    """Extracting motor related data"""
     def __init__(self, parm_data, rcou_data, esc_data=None, motb_data=None, bat_data=None, powr_data=None, rpm_data=None):
         self.parm_data = parm_data
         self.rcou_data = rcou_data
@@ -99,6 +107,7 @@ class MotorMap:
         self.motor_map = {}
         self.valid = False
 
+    # Mapping and assigning motors to its respective pins
     def build_mapping(self):
         self.motor_map = {}
         self.valid = False
@@ -127,7 +136,7 @@ class MotorMap:
 
         self.valid = len(self.motor_map) > 0
         return self.motor_map
-
+    # Motor output values
     def get_motor_outputs(self):
         if not self.valid:
             return {}
@@ -146,6 +155,8 @@ class MotorMap:
                     })
 
         return motor_outputs
+    # Esc instance mapping
+    # TODO: Esc instance for motor.
 
     def get_esc_rpm(self):
         if not self.esc_data:
@@ -191,7 +202,6 @@ class MotorMap:
             }
         }
 
-
 if __name__ == "__main__":
     parser = BinIngest("old_versions/ardupilot-log-analyzer/data/raw_logs/motor_fail_00000082.BIN")
     
@@ -200,7 +210,7 @@ if __name__ == "__main__":
 
     print(f"[signals] {', '.join(f'{k}={len(v)}' for k, v in result['data'].items())}")
 
-    motor_mapper = MotorMap(
+    motor_mapper = MotorData(
         parm_data=result["data"].get("PARM", []),
         rcou_data=result["data"].get("RCOU", []),
         esc_data=result["data"].get("ESC"),
