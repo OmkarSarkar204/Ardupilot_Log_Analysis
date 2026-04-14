@@ -203,10 +203,10 @@ class MotorData:
         }
 
 class SensorData:
-    def __init__(self, imu_data=None, vibe_data=None, gyr_data=None, mag_data=None):
+    def __init__(self, imu_data=None, vibe_data=None, gyro_data=None, mag_data=None):
         self.imu_data = imu_data or []
         self.vibe_data = vibe_data or []
-        self.gyro_data = gyr_data or []
+        self.gyro_data = gyro_data or []
         self.mag_data = mag_data or []
 
     def get_imu(self):
