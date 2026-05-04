@@ -1,98 +1,42 @@
-## Prototype For GSoC 2026 - ArduPilot
+# ArduPilot Log Diagnosis
 
-Note: This is not the final repo for this project all developement work and testing will take place here along with the final prototype, before starting the official project this repo will stay active.
+Automated analysis of ArduPilot flight logs to identify what happened, when it happened, and why.
 
-The current working model is in old_versions/Version3
+This project builds a structured pipeline for analyzing `.BIN` logs using deterministic signal processing and model-based validation.
 
-Current developing folder `AI_Assisted_Log_Diagnosis`
+## Status
 
-Another NOTE: The Version-3 in the main repo contains only a readme for the Proposal
+This repository contains active development work.  
+The current implementation is under `AI_Assisted_Log_Diagnosis/`, while earlier iterations are preserved in `old_versions/`.  
 
+## Problem
 
+ArduPilot logs contain high-frequency telemetry from multiple subsystems, recorded at different rates and without a unified time base.  
+Understanding failures requires correlating attitude, motor outputs, vibration, power systems, and estimator behavior across time.
 
-# AI-Assisted Log Diagnosis for ArduPilot
+In practice, this is still done manually. It is slow, error-prone, and heavily dependent on experience.
 
-## Overview
+## Approach
 
-This project aims to simplify ArduPilot log analysis by automatically explaining **why a crash or unexpected behavior occurred**.
+The system is designed as a sequential pipeline.
 
-Currently, users must manually inspect `.BIN` flight logs and interpret patterns across multiple signals. This process is complex, time-consuming, and heavily dependent on expert knowledge.
+It begins with log ingestion, where `.BIN` files are parsed through MAVLink and relevant message types are extracted and normalized.  
+Since signals are recorded asynchronously, the next step aligns them into a consistent time representation.
 
-This tool automates that process by analyzing telemetry data and identifying **cause-and-effect relationships over time**.
+Once aligned, raw telemetry is transformed into structured signal groups such as motor behavior, IMU dynamics, battery response, and estimator state. These representations are then evaluated using physics-based checks derived from expected flight behavior.
 
+Instead of reacting to short-lived spikes, the system focuses on sustained deviations. A temporal layer is then applied to validate patterns over time and suppress noise.
 
+Finally, all detections are combined into a structured diagnosis that links each conclusion directly to the underlying telemetry.
 
-## How It Works
+## Design Principles To Achieve
 
-The system processes a flight log through the following pipeline:
+The system will be built around deterministic and traceable logic. Every output must be explainable through actual signals rather than heuristics.  
+The architecture is modular so that new vehicle types and analysis modules can be added without restructuring the pipeline.
 
-1. **Log Parsing & Time Alignment**
-   - Handles asynchronous sensor data recorded at different rates
-   - Aligns signals into consistent time windows
+## Current Scope
 
-2. **Feature Generation**
-   - Extracts and computes relevant metrics from telemetry
+The current focus is on Copter logs.  
+Work so far includes ingestion, motor-related signal extraction, and IMU/vibration handling.
 
-3. **Dual-Layer Analysis**
-   - **Physics-based checks** → detect violations of expected flight behavior  
-   - **ML model (Hidden Markov Model)** → validate patterns over time
-
-4. **Aggregation**
-   - Combines results from both layers
-   - Filters noise and ensures only sustained anomalies are considered
-
-5. **Final Diagnosis**
-   - Produces a structured explanation of the root cause
-
-
-
-## Core Approach
-
-- Combine **deterministic physics rules** with a **sequence-based ML model (HMM)**
-- Accept detections only when both agree over sustained time
-- Filter noise by evaluating consistency instead of reacting to spikes
-
-This avoids relying purely on rules or ML, both of which are unreliable on noisy real-world logs.
-
-
-## Role of LLM
-
-An **LLM-based agent** is used only for:
-- Coordinating tool execution
-- Combining outputs into clear explanations
-
-All computations remain deterministic and traceable.
-
-
-## Key Features
-
-- Explains **what happened, when it happened, and why**
-- Links every conclusion to actual telemetry data
-- Suggests possible fixes
-- Adapts to different firmware versions using dynamic parameter lookup
-- Works **locally and offline**
-
-
-## Scope
-
-- Initial focus: **Copter**
-- Architecture designed to support:
-  - Plane
-  - Rover
-  - Sub
-
-
-## Future Plan
-
-- Convert existing prototype into modular, callable components
-- Upgrade ML model to sequence-based HMM
-- Integrate dynamic parameter retrieval from codebase
-- Extend support to additional vehicle types
-- Package as an easy-to-use CLI tool
-
-
-A simple command-line tool that:
-- Runs locally (no internet required)
-- Works on real-world logs
-- Provides reliable root-cause diagnosis
-- Remains open-source and extensible
+The same structure is intended to support Plane, Rover, and Sub once the base pipeline stabilizes.
