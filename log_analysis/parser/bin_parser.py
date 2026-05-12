@@ -13,8 +13,9 @@ from ardupilot_methodic_configurator.annotate_params import (
     parse_parameter_metadata,
     PARAM_DEFINITION_XML_FILE,
 )
-class ParsedLog:
 
+
+class ParsedLog:
     def __init__(self):
         self.params = {}
         self.vibe = []
@@ -47,15 +48,8 @@ class BinParser:
     def parse(self):
 
         parsed = ParsedLog()
-        parsed.params = extract_parameter_values(
-            self.logfile,
-            "values"
-        )
-        vehicle, major, minor, patch = (
-            extract_firmware_version_and_vehicle_type(
-                self.logfile
-            )
-        )
+        parsed.params = extract_parameter_values(self.logfile, "values")
+        vehicle, major, minor, patch = extract_firmware_version_and_vehicle_type(self.logfile)
 
         version = f"{major}.{minor}.{patch}"
 
@@ -65,21 +59,13 @@ class BinParser:
         }
 
         # PARAMETER METADATA
-        parsed.metadata = self.load_metadata(
-            vehicle,
-            version
-        )
+        parsed.metadata = self.load_metadata(vehicle, version)
 
         # LOG PARSING
-        mlog = mavutil.mavlink_connection(
-            self.logfile
-        )
+        mlog = mavutil.mavlink_connection(self.logfile)
 
         while True:
-
-            msg = mlog.recv_match(
-                blocking=False
-            )
+            msg = mlog.recv_match(blocking=False)
 
             if msg is None:
                 break
@@ -87,16 +73,15 @@ class BinParser:
             mtype = msg.get_type()
 
             if mtype == "ESC":
+                parsed.esc.append(
+                    {
+                        "time": getattr(msg, "TimeUS", None),
+                        "rpm": getattr(msg, "RPM", None),
+                    }
+                )
 
-                parsed.esc.append({
 
-                    "time": getattr(msg, "TimeUS", None),
-                    "rpm": getattr(msg, "RPM", None),
-                })
-
-parser = BinParser(
-    "log_analysis/2026-04-07 18-39-06.bin"
-)
+parser = BinParser("log_analysis/2026-04-07 18-39-06.bin")
 
 parsed = parser.parse()
 
