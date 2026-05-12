@@ -1,9 +1,11 @@
-from pymavlink import mavutil
 import json
+
+from pymavlink import mavutil
 
 
 class BinIngest:
     """Processing froward only Selected Targets for now"""
+
     def __init__(self, file_path):
         self.file_path = file_path
         self.connection = mavutil.mavlink_connection(file_path)
@@ -21,12 +23,7 @@ class BinIngest:
         # XKF1: EKF state including attitude and velocity
         # ERR: Critical system error codes and failure flags
 
-        self.targets = [
-            "RCOU", "ESC", "MOTB",
-            "BAT", "POWR", "IMU",
-            "VIBE", "ATT", "XKF1",
-            "ERR", "RPM", "PARM"
-        ]
+        self.targets = ["RCOU", "ESC", "MOTB", "BAT", "POWR", "IMU", "VIBE", "ATT", "XKF1", "ERR", "RPM", "PARM"]
 
         self.data = {}
 
@@ -38,7 +35,7 @@ class BinIngest:
 
     def reset(self):
         self.connection = mavutil.mavlink_connection(self.file_path)
-    # 
+
     def parse(self):
         count = 0
         self.data = {}
@@ -47,7 +44,7 @@ class BinIngest:
             message = self.connection.recv_match(blocking=False)
             if message is None:
                 break
-            
+
             count += 1
             msgtype = message.get_type()
 
@@ -77,16 +74,12 @@ class BinIngest:
         for signal in data:
             for row in data[signal]:
                 if "TimeUS" in row and row["TimeUS"] is not None:
-                    row['TimeUS'] = row['TimeUS'] / 1e6
+                    row["TimeUS"] = row["TimeUS"] / 1e6
 
     def run(self):
         print("Parsing log")
         total = self.parse()
-        return {
-            "available_signals": self.active_signals,
-            "total_messages": total,
-            "data": self.data
-        }
+        return {"available_signals": self.active_signals, "total_messages": total, "data": self.data}
 
     def save(self, output_path, parsed_data):
         with open(output_path, "w") as f:
@@ -95,6 +88,7 @@ class BinIngest:
 
 class MotorData:
     """Extracting motor related data"""
+
     def __init__(self, parm_data, rcou_data, esc_data=None, motb_data=None, bat_data=None, powr_data=None, rpm_data=None):
         self.parm_data = parm_data
         self.rcou_data = rcou_data
@@ -136,6 +130,7 @@ class MotorData:
 
         self.valid = len(self.motor_map) > 0
         return self.motor_map
+
     # Motor output values
     def get_motor_outputs(self):
         if not self.valid:
@@ -149,12 +144,10 @@ class MotorData:
                 time = row.get("TimeUS")
 
                 if val is not None and time is not None:
-                    motor_outputs[motor].append({
-                        "t": time,
-                        "pwm": val
-                    })
+                    motor_outputs[motor].append({"t": time, "pwm": val})
 
         return motor_outputs
+
     # Esc instance mapping
     # TODO: Esc instance for motor.
 
@@ -173,10 +166,7 @@ class MotorData:
             time = row.get("TimeUS")
 
             if idx is not None and rpm is not None and time is not None:
-                esc_map.setdefault(f"Motor{idx+1}", []).append({
-                    "t": time,
-                    "rpm": rpm
-                })
+                esc_map.setdefault(f"Motor{idx + 1}", []).append({"t": time, "rpm": rpm})
 
         return esc_map
 
@@ -186,21 +176,12 @@ class MotorData:
 
         return {
             "mapping": self.motor_map,
-            "control": {
-                "rcou": rcou_outputs
-            },
-            "feedback": {
-                "esc": esc_outputs,
-                "rpm": self.rpm_data if self.rpm_data is not None else []
-            },
-            "power": {
-                "bat": self.bat_data or [],
-                "powr": self.powr_data or []
-            },
-            "interaction": {
-                "motb": self.motb_data or []
-            }
+            "control": {"rcou": rcou_outputs},
+            "feedback": {"esc": esc_outputs, "rpm": self.rpm_data if self.rpm_data is not None else []},
+            "power": {"bat": self.bat_data or [], "powr": self.powr_data or []},
+            "interaction": {"motb": self.motb_data or []},
         }
+
 
 class SensorData:
     def __init__(self, imu_data=None, vibe_data=None, gyro_data=None, mag_data=None):
@@ -211,14 +192,14 @@ class SensorData:
 
     def get_imu(self):
         imu_map = {}
-        
+
         for row in self.imu_data:
             idx = row.get("Instance")
             if idx is None:
                 idx = row.get("I")
             if idx is None:
                 idx = 0
-                
+
             t = row.get("TimeUS")
 
             acc = [row.get("AccX"), row.get("AccY"), row.get("AccZ")]
@@ -226,19 +207,16 @@ class SensorData:
 
             if t is None or None in acc or None in gyro:
                 continue
-            
+
             key = f"IMU_{idx}"
-            imu_map.setdefault(key, []).append({
-                "t": t,
-                "acc": acc,
-                "gyro": gyro
-            })
-            
+            imu_map.setdefault(key, []).append({"t": t, "acc": acc, "gyro": gyro})
+
         return imu_map
+
 
 if __name__ == "__main__":
     parser = BinIngest("old_versions/ardupilot-log-analyzer/data/raw_logs/motor_fail_00000082.BIN")
-    
+
     # parser.save("parsed.json", result)
     result = parser.run()
 
@@ -251,19 +229,19 @@ if __name__ == "__main__":
         motb_data=result["data"].get("MOTB"),
         bat_data=result["data"].get("BAT"),
         powr_data=result["data"].get("POWR"),
-        rpm_data=result["data"].get("RPM")
+        rpm_data=result["data"].get("RPM"),
     )
 
     motor_mapper.build_mapping()
     motor_data = motor_mapper.build_motor_data()
 
     mapping = motor_data["mapping"]
-    rcou    = motor_data["control"]["rcou"]
-    esc     = motor_data["feedback"]["esc"]
-    rpm     = motor_data["feedback"]["rpm"]
-    bat     = motor_data["power"]["bat"]
-    powr    = motor_data["power"]["powr"]
-    motb    = motor_data["interaction"]["motb"]
+    rcou = motor_data["control"]["rcou"]
+    esc = motor_data["feedback"]["esc"]
+    rpm = motor_data["feedback"]["rpm"]
+    bat = motor_data["power"]["bat"]
+    powr = motor_data["power"]["powr"]
+    motb = motor_data["interaction"]["motb"]
 
     print(f"[mapping]     {mapping}")
     print(f"[control]     rcou={list(rcou.keys()) if rcou else []}")
@@ -271,14 +249,11 @@ if __name__ == "__main__":
     print(f"[power]       bat={'yes' if bat else 'no'}  powr={'yes' if powr else 'no'}")
     print(f"[interaction] motb={'yes' if motb else 'no'}")
 
-    final_output = {
-    "signals": result["data"],
-    "motor_data": motor_data
-    }
+    final_output = {"signals": result["data"], "motor_data": motor_data}
 
     with open("final_mot_op.json", "w") as file:
         json.dump(final_output, file, indent=2)
-    
+
     # Save complete motor data to json.
     # with open("motor_data.json", "w") as f:
     #     json.dump(motor_data, f, indent=2)
