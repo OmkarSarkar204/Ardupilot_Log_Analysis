@@ -48,6 +48,12 @@ flowchart TB
         B["PyMavlink Parser"]
         C["Raw MAVLink Signals"]
   end
+ subgraph Quality["LOG QUALITY ASSESSMENT"]
+        QC1["Quality Engine<br>Check Rates, Gaps & Aliasing"]
+        QC2{"Data Sufficient?"}
+        QC3["Flag Impossible Tests &<br>Suggest Logging Params"]
+        QC4["Determine Possible Tests"]
+  end
  subgraph Processing["SIGNAL PROCESSING"]
         D["Time Alignment"]
         E["Resampling"]
@@ -57,11 +63,11 @@ flowchart TB
         G1["Battery Features"]
         G2["IMU Features"]
         G3["Motor Features"]
-        G4["Control Features<br>Attitude &amp; Rate Error"]
+        G4["Control Features<br>Attitude & Rate Error"]
         G5["Estimator Features<br>EKF Consistency"]
   end
  subgraph Parallel["PARALLEL ANALYSIS"]
-        P1["Physics Engine<br>Limits &amp; Patterns"]
+        P1["Physics Engine<br>Limits & Patterns"]
         P2["ML Layer<br>HMM State Detection"]
   end
  subgraph Fusion["COMBINATION"]
@@ -88,7 +94,14 @@ flowchart TB
   end
     A --> B
     B --> C
-    C --> D
+    
+    C --> QC1
+    QC1 --> QC2
+    QC2 -- No --> QC3
+    QC2 -- Yes --> QC4
+    QC3 --> D
+    QC4 --> D
+    
     D --> E
     E --> F
     F --> G1 & G2 & G3 & G4 & G5
