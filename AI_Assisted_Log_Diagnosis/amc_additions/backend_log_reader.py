@@ -23,9 +23,6 @@ class LogReader:
   def extract_parameters(self) -> tuple[ParDict, ParDict]:
     return VehicleProjectCreator.extract_param_files_from_bin_log(self.logfile)
   
-  def vehicle_frame_type(self):
-    pass
-
   def read_all_messages(self) -> LogData:
     log_data = LogData()
     message_counts = {}
