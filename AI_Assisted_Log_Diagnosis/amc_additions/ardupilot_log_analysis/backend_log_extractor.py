@@ -17,10 +17,6 @@ from pymavlink import mavutil
 
 PARAM_NAME_REGEX = r"^[A-Z][A-Z_0-9]*$"
 PARAM_NAME_MAX_LEN = 16
-MAVLINK_SYSID_MAX = 2**24
-MAVLINK_COMPID_MAX = 2**8
-MAV_PARAM_TYPE_REAL32 = 9
-
 
 
 def open_log(logfile: str) -> mavutil.mavfile:
@@ -60,12 +56,11 @@ class LogData:
         self.default_params: dict[str, float] = {}
         self.current_params: dict[str, float] = {}
         self.firmware_info: tuple[str, int, int, int] | None = None
-        self.vehicle_name: str | None = None
         self.frame_type: int | None = None
 
 
 class LogReader:
-    def __init__(self, logfile: str):
+    def __init__(self, logfile: str) -> None:
         self.logfile = logfile
 
     def extract_log(self) -> LogData:
@@ -85,48 +80,74 @@ class LogReader:
                 msg_type = msg.get_type()
                 message_counts[msg_type] = message_counts.get(msg_type, 0) + 1
 
-
                 #Extract PARM messages and store them, also is used in extract_param_defaults.py
                 if msg_type == "PARM":
-                    pname = str(msg.Name)
-                    if len(pname) > PARAM_NAME_MAX_LEN:
-                        logging.warning("Too long parameter name %s", pname)
-                        continue
-                    if not re.match(PARAM_NAME_REGEX, pname):
-                        logging.warning("Invalid parameter name %s", pname)
-                        continue
-                    # parameter names are supposed to be unique
-                    if pname in log_data.default_params:
-                        continue
-                    if msg.Default is not None:
-                        log_data.default_params[pname] = float(msg.Default)
-                    if msg.Value is not None:
-                        log_data.current_params[pname] = float(msg.Value)
+                    self.process_parm(msg, log_data)
+
                 # Extract the Version with Vehicle_type, Major, Minor and Patch.
                 elif msg_type == "VER":
-                    fws = str(msg.FWS) # e.g. "ArduCopter V4.6.3
-                    vehicle_type = fws.split(maxsplit=1)[0] if fws else ""
-                    maj, mini, pat = msg.Maj, msg.Min, msg.Pat
-                    if maj is not None and mini is not  None and pat is not None:
-                        firmware_from_ver = (vehicle_type, int(maj), int(mini), int(pat))
+                    firmware_from_ver = self.process_ver(msg)
+
                 # Fallback to MSG if version is not available.
                 elif msg_type == "MSG":
-                    if firmware_from_msg is None:
-                        parts = str(msg.Message).split()
-                        if len(parts) >= 2 and parts[1].startswith("V"):
-                            version_parts = parts[1][1:].split(".")  # Remove "V" prefix, split by "."
-                            if len(version_parts) >= 2:
-                                with contextlib.suppress(ValueError):
-                                    patch_val = int(version_parts[2]) if len(version_parts) >= 3 else 0
-                                    firmware_from_msg = (parts[0], int(version_parts[0]), int(version_parts[1]), patch_val)
+                    firmware_from_msg = self.process_msg_version_fallback(msg, firmware_from_msg)
             if firmware_from_ver is not None:
                 log_data.firmware_info = firmware_from_ver
             else:
                 log_data.firmware_info = firmware_from_msg
+
+            self.process_frame_type(log_data)
+
         finally:
             close_log(mlog)
         log_data.messages = message_counts
         return log_data
+
+    def process_parm(self, msg: mavutil.mavfile, log_data: LogData) -> None:
+        pname = str(msg.Name)
+        if len(pname) > PARAM_NAME_MAX_LEN:
+            logging.warning("Too long parameter name %s", pname)
+            return
+        if not re.match(PARAM_NAME_REGEX, pname):
+            logging.warning("Invalid parameter name %s", pname)
+            return
+
+        # parameter names are supposed to be unique
+        if pname in log_data.default_params:
+            return
+        if msg.Default is not None:
+            log_data.default_params[pname] = float(msg.Default)
+        if msg.Value is not None:
+            log_data.current_params[pname] = float(msg.Value)
+
+    def process_ver(self,msg: mavutil.mavfile) -> tuple[str, int, int, int] | None:
+        fws = str(msg.FWS) # e.g. "ArduCopter V4.6.3"
+        vehicle_type = fws.split(maxsplit=1)[0] if fws else ""
+        maj, mini, pat = msg.Maj, msg.Min, msg.Pat
+        if maj is None or mini is None or pat is None:
+            return None
+
+        return (vehicle_type, int(maj), int(mini), int(pat))
+
+    def process_msg_version_fallback(self, msg, firmware_from_msg: tuple[str, int, int, int] | None) -> tuple[str, int, int, int] | None:  # noqa: ANN001, E501
+        if firmware_from_msg is not None:
+            return firmware_from_msg
+        parts = str(msg.Message).split()
+        if len(parts) >= 2 and parts[1].startswith("V"):
+            version_parts = parts[1][1:].split(".")  # Remove "V" prefix, split by "."
+            if len(version_parts) >= 2:
+                with contextlib.suppress(ValueError):
+                    patch_val = int(version_parts[2]) if len(version_parts) >= 3 else 0
+                    return (parts[0], int(version_parts[0]), int(version_parts[1]), patch_val)
+        return None
+
+    def process_frame_type(self, log_data: LogData) -> None:
+        frame_type_val = log_data.current_params.get("FRAME_TYPE")
+        if frame_type_val is not None:
+            log_data.frame_type = int(frame_type_val)
+
+    def process_batt(self, msg, log_data) -> None:
+        pass
 
 if __name__ == "__main__":
     reader = LogReader("altitude_estimation_4.7.bin")
