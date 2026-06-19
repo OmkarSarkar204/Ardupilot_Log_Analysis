@@ -1,25 +1,28 @@
 """
 Parses an ArduPilot .bin log file, and extracts all the parameters required for analysing the log.
 
-Supports Mission Planner, MAVProxy and QGCS file format output
-
 SPDX-FileCopyrightText: 2024-2026 Amilcar do Carmo Lucas <amilcar.lucas@iav.de>
 
 SPDX-License-Identifier: GPL-3.0-or-later
 """
 
-import re
-import logging
 import contextlib
+import logging
+import re
+
 from pymavlink import mavutil
 
 PARAM_NAME_REGEX = r"^[A-Z][A-Z_0-9]*$"
 PARAM_NAME_MAX_LEN = 16
 
+
 def is_param_name_too_long(pname: str) -> bool:
+    """Return True if the param name exceeds PARAM_NAME_MAX_LEN."""
     return len(pname) > PARAM_NAME_MAX_LEN
 
+
 def is_param_name_format_valid(pname: str) -> bool:
+    """Return True if the parameter name matches the PARAM_NAME_REGEX pattern."""
     return bool(re.match(PARAM_NAME_REGEX, pname))
 
 
@@ -38,7 +41,7 @@ def open_log(logfile: str) -> mavutil.mavfile:
         mlog = mavutil.mavlink_connection(logfile)
     except Exception as e:
         msg = f"Error opening the {logfile} logfile: {e!s}"
-        raise SystemExit(msg) from e
+        raise OSError(msg) from e
     return mlog  # pyright: ignore[reportReturnType]  # pymavlink stubs include CSVReader which doesn't extend mavfile
 
 
@@ -54,7 +57,9 @@ def close_log(mlog: mavutil.mavfile) -> None:
         mlog.close()
 
 
-class LogData:
+class LogData:  # pylint: disable=too-few-public-methods
+    """Contains all data extracted from an ArduPilot .bin log."""
+
     def __init__(self) -> None:
         self.messages: dict[str, int] = {}
         self.default_params: dict[str, float] = {}
@@ -63,17 +68,24 @@ class LogData:
         self.frame_type: int | None = None
 
 
-class LogReader:
+class LogReader:  # pylint: disable=too-few-public-methods
+    """Reader for Ardupilot log files, sending each message to its appropriate function."""
+
     def __init__(self, logfile: str) -> None:
         self.logfile = logfile
 
-
     def extract_log(self) -> LogData:
+        """
+        Open the log file, scan every message, and return the LogData.
+
+        Returns:
+            A populated LogData object containing parameters, firmware info, message counts, and frame type.
+
+        """
         log_data = LogData()
         message_counts: dict[str, int] = {}
         firmware_from_ver: tuple[str, int, int, int] | None = None
         firmware_from_msg: tuple[str, int, int, int] | None = None
-
 
         mlog = open_log(self.logfile)
 
@@ -85,7 +97,7 @@ class LogReader:
                 msg_type = msg.get_type()
                 message_counts[msg_type] = message_counts.get(msg_type, 0) + 1
 
-                #Extract PARM messages and store them, also is used in extract_param_defaults.py
+                # Extract PARM messages and store them, also is used in extract_param_defaults.py
                 if msg_type == "PARM":
                     process_param(msg, log_data)
 
@@ -109,8 +121,18 @@ class LogReader:
         return log_data
 
 
-
 def process_param(msg: mavutil.mavfile, log_data: LogData) -> None:
+    """
+    Validate and store a single PARM message into log_data's parameter dicts.
+
+    Skips entries with invalid or duplicate names. Adds both
+    default_params and current_params from the message's Default and Value fields.
+
+    Args:
+      msg: A PARM log entry parsed from an ArduPilot .bin file.
+      log_data: The LogData instance to write param value into.
+
+    """
     pname = str(msg.Name)
     if is_param_name_too_long(pname):
         logging.warning("Too long parameter name %s", pname)
@@ -125,52 +147,83 @@ def process_param(msg: mavutil.mavfile, log_data: LogData) -> None:
     if msg.Value is not None:
         log_data.current_params[pname] = float(msg.Value)
 
+
 def process_ver(msg: mavutil.mavfile) -> tuple[str, int, int, int] | None:
-        fws = str(msg.FWS) # e.g. "ArduCopter V4.6.3"
-        vehicle_type = fws.split(maxsplit=1)[0] if fws else ""
-        maj, mini, pat = msg.Maj, msg.Min, msg.Pat
-        if maj is None or mini is None or pat is None:
-            return None
+    """
+    Extract firmware version from VER message.
 
-        return (vehicle_type, int(maj), int(mini), int(pat))
+    Args:
+      msg: A VER log entry parsed from an ArduPilot .bin file.
 
-def process_msg_version_fallback(msg, firmware_from_msg: tuple[str, int, int, int] | None) -> tuple[str, int, int, int] | None:  # noqa: ANN001
-        if firmware_from_msg is not None:
-            return firmware_from_msg
-        parts = str(msg.Message).split()
-        if len(parts) >= 2 and parts[1].startswith("V"):
-            version_parts = parts[1][1:].split(".")  # Remove "V" prefix, split by "."
-            if len(version_parts) >= 2:
-                with contextlib.suppress(ValueError):
-                    patch_val = int(version_parts[2]) if len(version_parts) >= 3 else 0
-                    return (parts[0], int(version_parts[0]), int(version_parts[1]), patch_val)
+    Returns:
+      A tuple of (vehicle_type, major, minor, patch), e.g. ("ArduCopter", 4, 6, 3).
+
+    """
+    fws = str(msg.FWS)  # e.g. "ArduCopter V4.6.3"
+    vehicle_type = fws.split(maxsplit=1)[0] if fws else ""
+    maj, mini, pat = msg.Maj, msg.Min, msg.Pat
+    if maj is None or mini is None or pat is None:
         return None
 
+    return (vehicle_type, int(maj), int(mini), int(pat))
+
+
+def process_msg_version_fallback(
+    msg: mavutil.mavfile, firmware_from_msg: tuple[str, int, int, int] | None
+) -> tuple[str, int, int, int] | None:
+    """
+    Extract firmware version from MSG message.
+
+    Falls back to scanning MSG messages until one with a parseable "Vx.y" version
+    is found (e.g. "ArduCopter V4.6.3 (hash)").
+
+    Args:
+      msg: A MSG log entry parsed from an ArduPilot .bin file.
+      firmware_from_msg: If any previously found message from MSG, or None.
+
+    Returns:
+      The existing result unchanged if already found, a newly parsed tuple
+      of (vehicle_type, major, minor, patch) if parseable, or None otherwise.
+
+    """
+    if firmware_from_msg is not None:
+        return firmware_from_msg
+    parts = str(msg.Message).split()
+    if len(parts) >= 2 and parts[1].startswith("V"):
+        version_parts = parts[1][1:].split(".")  # Remove "V" prefix, split by "."
+        if len(version_parts) >= 2:
+            with contextlib.suppress(ValueError):
+                patch_val = int(version_parts[2]) if len(version_parts) >= 3 else 0
+                return (parts[0], int(version_parts[0]), int(version_parts[1]), patch_val)
+    return None
+
+
 def process_frame_type(log_data: LogData) -> None:
-        frame_type_val = log_data.current_params.get("FRAME_TYPE")
-        if frame_type_val is not None:
-            log_data.frame_type = int(frame_type_val)
+    """
+    Extract the Frame Type from the FRAME_TYPE parameter.
 
-def process_batt(msg: mavutil.mavfile, log_data: LogData) -> None:
-        pass
+    Args:
+        log_data: The LogData instance whose current_params are read from.
+
+    """
+    frame_type_val = log_data.current_params.get("FRAME_TYPE")
+    if frame_type_val is not None:
+        log_data.frame_type = int(frame_type_val)
 
 
-#This is for testing
+if __name__ == "__main__":
+    reader = LogReader("MethodicConfigurator/altitude_estimation_4.7.bin")
+    data = reader.extract_log()
 
-# if __name__ == "__main__":
-#     reader = LogReader("MethodicConfigurator/altitude_estimation_4.7.bin")
-#     data = reader.extract_log()
+    print(data.firmware_info)
 
-#     print(data.firmware_info)
+    print(len(data.default_params))
 
-#     print(len(data.default_params))
+    print(len(data.current_params))
 
-#     print(len(data.current_params))
-
-#     non_default = {
-#         name: value
-#         for name, value in data.current_params.items()
-#         if name in data.default_params
-#         and value != data.default_params[name]
-#     }
-#     print(len(non_default))
+    non_default = {
+        name: value
+        for name, value in data.current_params.items()
+        if name in data.default_params and value != data.default_params[name]
+    }
+    print(len(non_default))

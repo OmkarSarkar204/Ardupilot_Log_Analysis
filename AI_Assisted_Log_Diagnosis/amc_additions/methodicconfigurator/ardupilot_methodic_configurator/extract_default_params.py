@@ -4,8 +4,6 @@
 """
 Extracts parameter values or parameter default values from an ArduPilot .bin log file.
 
-Supports Mission Planner, MAVProxy and QGCS file format output
-
 Currently has 95% unit test coverage
 
 SPDX-FileCopyrightText: 2024-2026 Amilcar do Carmo Lucas <amilcar.lucas@iav.de>
@@ -21,16 +19,13 @@ import argcomplete
 from argcomplete.completers import FilesCompleter
 from pymavlink import mavutil
 
-from ardupilot_methodic_configurator.ardupilot_log_analysis.backend_log_extractor import (
-    is_param_name_format_valid,
-    is_param_name_too_long,
-    process_msg_version_fallback,
-    process_ver,
-)
+from AI_Assisted_Log_Diagnosis.amc_additions.log_analysis.backend_log_extraction import is_param_name_format_valid, is_param_name_too_long, process_msg_version_fallback, process_ver
+
 
 NO_DEFAULT_VALUES_MESSAGE = (
     "The .bin file contained no parameter default values. Update to a newer ArduPilot firmware version."
 )
+
 MAVLINK_SYSID_MAX = 2**24
 MAVLINK_COMPID_MAX = 2**8
 MAV_PARAM_TYPE_REAL32 = 9
@@ -260,8 +255,8 @@ def extract_firmware_version_and_vehicle_type(logfile: str) -> tuple[str, int, i
                 result = process_ver(m)
                 if result is not None:
                     return result
-                continue
-            msg_fallback_result = process_msg_version_fallback(m, msg_fallback_result)
+            elif m.get_type() == "MSG":
+                msg_fallback_result = process_msg_version_fallback(m, msg_fallback_result)
 
         if msg_fallback_result is not None:
             return msg_fallback_result
