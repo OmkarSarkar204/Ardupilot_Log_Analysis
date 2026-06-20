@@ -57,19 +57,11 @@ def close_log(mlog: mavutil.mavfile) -> None:
         mlog.close()
 
 
-class LogData:  # pylint: disable=too-few-public-methods
-    """Contains all data extracted from an ArduPilot .bin log."""
-
-    def __init__(self) -> None:
-        self.messages: dict[str, int] = {}
-        self.default_params: dict[str, float] = {}
-        self.current_params: dict[str, float] = {}
-        self.firmware_info: tuple[str, int, int, int] | None = None
-        self.frame_type: int | None = None
-        # There could be multiple batteries in the vehicle, so create a separate dict for them.
-        self.batteries: dict[int, BatteryData] = {}
-
 class BatteryData:
+    """Stores battery telemetry data extracted from BAT log messages."""
+
+    # BCL will be added later during the Phy Validation
+
     def __init__(self) -> None:
         self.timeUS: list[int] = []
         self.volt: list[float] = []
@@ -82,6 +74,19 @@ class BatteryData:
         self.rem_pct: list[int] = []
         self.health: list[int] = []
         self.state_health: list[int] = []
+
+
+class LogData:  # pylint: disable=too-few-public-methods
+    """Contains all data extracted from an ArduPilot .bin log."""
+
+    def __init__(self) -> None:
+        self.messages: dict[str, int] = {}
+        self.default_params: dict[str, float] = {}
+        self.current_params: dict[str, float] = {}
+        self.firmware_info: tuple[str, int, int, int] | None = None
+        self.frame_type: int | None = None
+        # There could be multiple batteries in the vehicle, so create a separate dict for them.
+        self.batteries: dict[int, BatteryData] = {}
 
 
 class LogReader:  # pylint: disable=too-few-public-methods
@@ -125,6 +130,7 @@ class LogReader:  # pylint: disable=too-few-public-methods
                 elif msg_type == "MSG":
                     firmware_from_msg = process_msg_version_fallback(msg, firmware_from_msg)
 
+                # Extract the BAT messages and store them in BatteryData
                 elif msg_type == "BAT":
                     process_bat(msg, log_data)
 
@@ -142,7 +148,15 @@ class LogReader:  # pylint: disable=too-few-public-methods
 
 
 def process_bat(msg: mavutil.mavfile, log_data: LogData) -> None:
+    """
+    Extract battery telemetry from a BAT DataFlash log entry.
 
+    Args:
+        msg: A BAT log entry parsed from an ArduPilot .bin file.
+        log_data: The LogData instance to write battery data into.
+
+    """
+    # If there are multiple battery instances store them separately
     inst = int(msg.Inst)
     if inst not in log_data.batteries:
         log_data.batteries[inst] = BatteryData()
@@ -159,6 +173,7 @@ def process_bat(msg: mavutil.mavfile, log_data: LogData) -> None:
     battery.rem_pct.append(int(msg.RemPct))
     battery.health.append(int(msg.H))
     battery.state_health.append(int(msg.SH))
+
 
 def process_param(msg: mavutil.mavfile, log_data: LogData) -> None:
     """
