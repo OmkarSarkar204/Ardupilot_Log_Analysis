@@ -66,6 +66,22 @@ class LogData:  # pylint: disable=too-few-public-methods
         self.current_params: dict[str, float] = {}
         self.firmware_info: tuple[str, int, int, int] | None = None
         self.frame_type: int | None = None
+        # There could be multiple batteries in the vehicle, so create a separate dict for them.
+        self.batteries: dict[int, BatteryData] = {}
+
+class BatteryData:
+    def __init__(self) -> None:
+        self.timeUS: list[int] = []
+        self.volt: list[float] = []
+        self.volt_r: list[float] = []
+        self.curr: list[float] = []
+        self.curr_tot: list[float] = []
+        self.enrg_tot: list[float] = []
+        self.temp: list[float] = []
+        self.res: list[float] = []
+        self.rem_pct: list[int] = []
+        self.health: list[int] = []
+        self.state_health: list[int] = []
 
 
 class LogReader:  # pylint: disable=too-few-public-methods
@@ -108,6 +124,10 @@ class LogReader:  # pylint: disable=too-few-public-methods
                 # Fallback to MSG if version is not available.
                 elif msg_type == "MSG":
                     firmware_from_msg = process_msg_version_fallback(msg, firmware_from_msg)
+
+                elif msg_type == "BAT":
+                    process_bat(msg, log_data)
+
             if firmware_from_ver is not None:
                 log_data.firmware_info = firmware_from_ver
             else:
@@ -120,6 +140,25 @@ class LogReader:  # pylint: disable=too-few-public-methods
         log_data.messages = message_counts
         return log_data
 
+
+def process_bat(msg: mavutil.mavfile, log_data: LogData) -> None:
+
+    inst = int(msg.Inst)
+    if inst not in log_data.batteries:
+        log_data.batteries[inst] = BatteryData()
+    battery = log_data.batteries[inst]
+
+    battery.timeUS.append(int(msg.TimeUS))
+    battery.volt.append(float(msg.Volt))
+    battery.volt_r.append(float(msg.VoltR))
+    battery.curr.append(float(msg.Curr))
+    battery.curr_tot.append(float(msg.CurrTot))
+    battery.enrg_tot.append(float(msg.EnrgTot))
+    battery.temp.append(float(msg.Temp))
+    battery.res.append(float(msg.Res))
+    battery.rem_pct.append(int(msg.RemPct))
+    battery.health.append(int(msg.H))
+    battery.state_health.append(int(msg.SH))
 
 def process_param(msg: mavutil.mavfile, log_data: LogData) -> None:
     """
@@ -212,18 +251,26 @@ def process_frame_type(log_data: LogData) -> None:
 
 
 if __name__ == "__main__":
-    reader = LogReader("MethodicConfigurator/altitude_estimation_4.7.bin")
+    reader = LogReader("altitude_estimation_4.7.bin")
     data = reader.extract_log()
+    batt = data.batteries.get(0)
+    if batt:
+        print(len(batt.timeUS))
+        print(batt.volt[0])
+        print(min(batt.timeUS))
+        print(max(batt.timeUS))
+        print(batt.state_health)
 
-    print(data.firmware_info)
 
-    print(len(data.default_params))
+#     print(data.firmware_info)
 
-    print(len(data.current_params))
+#     print(len(data.default_params))
 
-    non_default = {
-        name: value
-        for name, value in data.current_params.items()
-        if name in data.default_params and value != data.default_params[name]
-    }
-    print(len(non_default))
+#     print(len(data.current_params))
+
+#     non_default = {
+#         name: value
+#         for name, value in data.current_params.items()
+#         if name in data.default_params and value != data.default_params[name]
+#     }
+#     print(len(non_default))
