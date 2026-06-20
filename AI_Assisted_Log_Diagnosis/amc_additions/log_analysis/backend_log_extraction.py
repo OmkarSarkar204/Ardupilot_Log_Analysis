@@ -9,6 +9,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 import contextlib
 import logging
 import re
+from typing import Any
 
 from pymavlink import mavutil
 
@@ -57,13 +58,13 @@ def close_log(mlog: mavutil.mavfile) -> None:
         mlog.close()
 
 
-class BatteryData:
+class BatteryData:  # pylint: disable=too-many-instance-attributes,too-few-public-methods
     """Stores battery telemetry data extracted from BAT log messages."""
 
     # BCL will be added later during the Phy Validation
 
     def __init__(self) -> None:
-        self.timeUS: list[int] = []
+        self.time_us: list[int] = []
         self.volt: list[float] = []
         self.volt_r: list[float] = []
         self.curr: list[float] = []
@@ -71,11 +72,20 @@ class BatteryData:
         self.enrg_tot: list[float] = []
         self.temp: list[float] = []
         self.res: list[float] = []
-        self.rem_pct: list[int] = []
+        self.rem_pct: list[float] = []  # stored as float in some firmware versions
         self.health: list[int] = []
         self.state_health: list[int] = []
 
+class PMData: # pylint: disable=too-many-instance-attributes
+    """Stores Flight Controller's CPU performance telemetry data extracted from PM messages."""
 
+    def __init__(self) -> None:
+        self.time_us: list[int] = []
+        self.load: list[int] = []
+        self.mem: list[int] = []
+        self.loop_rate: list[int] = []
+        self.int_err_bitmask: list[int] = []
+        self.long_loops: list[int] = []
 class LogData:  # pylint: disable=too-few-public-methods
     """Contains all data extracted from an ArduPilot .bin log."""
 
@@ -87,72 +97,76 @@ class LogData:  # pylint: disable=too-few-public-methods
         self.frame_type: int | None = None
         # There could be multiple batteries in the vehicle, so create a separate dict for them.
         self.batteries: dict[int, BatteryData] = {}
+        self.performance_monitor = PMData()
 
 
-class LogReader:  # pylint: disable=too-few-public-methods
-    """Reader for Ardupilot log files, sending each message to its appropriate function."""
+def extract_log(logfile: str) -> LogData:
+    """
+    Open the log file, scan every message, and return the LogData.
 
-    def __init__(self, logfile: str) -> None:
-        self.logfile = logfile
+    Args:
+        logfile: The path to an ArduPilot .bin log file.
 
-    def extract_log(self) -> LogData:
-        """
-        Open the log file, scan every message, and return the LogData.
+    Returns:
+        A populated LogData object containing parameters, firmware info, message counts, and frame type.
 
-        Returns:
-            A populated LogData object containing parameters, firmware info, message counts, and frame type.
+    """
+    log_data = LogData()
+    message_counts: dict[str, int] = {}
+    firmware_from_ver: tuple[str, int, int, int] | None = None
+    firmware_from_msg: tuple[str, int, int, int] | None = None
 
-        """
-        log_data = LogData()
-        message_counts: dict[str, int] = {}
-        firmware_from_ver: tuple[str, int, int, int] | None = None
-        firmware_from_msg: tuple[str, int, int, int] | None = None
+    mlog = open_log(logfile)
 
-        mlog = open_log(self.logfile)
+    try:
+        while True:
+            msg = mlog.recv_match()
+            if msg is None:
+                break
+            msg_type = msg.get_type()
+            message_counts[msg_type] = message_counts.get(msg_type, 0) + 1
 
-        try:
-            while True:
-                msg = mlog.recv_match()
-                if msg is None:
-                    break
-                msg_type = msg.get_type()
-                message_counts[msg_type] = message_counts.get(msg_type, 0) + 1
+            # Extract PARM messages and store them, also is used in extract_param_defaults.py
+            if msg_type == "PARM":
+                process_param(msg, log_data)
 
-                # Extract PARM messages and store them, also is used in extract_param_defaults.py
-                if msg_type == "PARM":
-                    process_param(msg, log_data)
+            # Extract the Version with Vehicle_type, Major, Minor and Patch.
+            elif msg_type == "VER":
+                firmware_from_ver = process_ver(msg)
 
-                # Extract the Version with Vehicle_type, Major, Minor and Patch.
-                elif msg_type == "VER":
-                    firmware_from_ver = process_ver(msg)
+            # Fallback to MSG if version is not available.
+            elif msg_type == "MSG":
+                firmware_from_msg = process_msg_version_fallback(msg, firmware_from_msg)
 
-                # Fallback to MSG if version is not available.
-                elif msg_type == "MSG":
-                    firmware_from_msg = process_msg_version_fallback(msg, firmware_from_msg)
+            # Extract the BAT messages and store them in BatteryData
+            elif msg_type == "BAT":
+                process_bat(msg, log_data)
 
-                # Extract the BAT messages and store them in BatteryData
-                elif msg_type == "BAT":
-                    process_bat(msg, log_data)
+            # Extract the PM messages and store them in PMData
+            elif msg_type == "PM":
+                process_performance(msg, log_data)
 
-            if firmware_from_ver is not None:
-                log_data.firmware_info = firmware_from_ver
-            else:
-                log_data.firmware_info = firmware_from_msg
+        if firmware_from_ver is not None:
+            log_data.firmware_info = firmware_from_ver
+        else:
+            log_data.firmware_info = firmware_from_msg
 
-            process_frame_type(log_data)
-
-        finally:
-            close_log(mlog)
+        process_frame_type(log_data)
         log_data.messages = message_counts
-        return log_data
+
+    finally:
+        close_log(mlog)
+
+    return log_data
 
 
-def process_bat(msg: mavutil.mavfile, log_data: LogData) -> None:
+def process_bat(msg: Any, log_data: LogData) -> None:  # noqa: ANN401
     """
     Extract battery telemetry from a BAT DataFlash log entry.
 
     Args:
-        msg: A BAT log entry parsed from an ArduPilot .bin file.
+        msg: A BAT log entry object parsed from an ArduPilot .bin file
+             (returned by mavutil.mavfile.recv_match()).
         log_data: The LogData instance to write battery data into.
 
     """
@@ -162,7 +176,7 @@ def process_bat(msg: mavutil.mavfile, log_data: LogData) -> None:
         log_data.batteries[inst] = BatteryData()
     battery = log_data.batteries[inst]
 
-    battery.timeUS.append(int(msg.TimeUS))
+    battery.time_us.append(int(msg.TimeUS))
     battery.volt.append(float(msg.Volt))
     battery.volt_r.append(float(msg.VoltR))
     battery.curr.append(float(msg.Curr))
@@ -170,21 +184,45 @@ def process_bat(msg: mavutil.mavfile, log_data: LogData) -> None:
     battery.enrg_tot.append(float(msg.EnrgTot))
     battery.temp.append(float(msg.Temp))
     battery.res.append(float(msg.Res))
-    battery.rem_pct.append(int(msg.RemPct))
-    battery.health.append(int(msg.H))
-    battery.state_health.append(int(msg.SH))
+    # RemPct is stored as float in some firmware versions; preserve precision
+    battery.rem_pct.append(float(msg.RemPct))
+    # H (health) and SH (state health) may be absent in older firmware; default to 0
+    battery.health.append(int(getattr(msg, "H", 0)))
+    battery.state_health.append(int(getattr(msg, "SH", 0)))
 
-
-def process_param(msg: mavutil.mavfile, log_data: LogData) -> None:
+def process_performance(msg: Any, log_data: LogData) -> None:  # noqa: ANN401
     """
-    Validate and store a single PARM message into log_data's parameter dicts.
-
-    Skips entries with invalid or duplicate names. Adds both
-    default_params and current_params from the message's Default and Value fields.
+    Extract performance telemetry from a PM DataFlash log entry.
 
     Args:
-      msg: A PARM log entry parsed from an ArduPilot .bin file.
-      log_data: The LogData instance to write param value into.
+        msg: A PM log entry object parsed from an ArduPilot .bin file
+             (returned by mavutil.mavfile.recv_match()).
+        log_data: The LogData instance to write performance data into.
+
+    """
+    pm = log_data.performance_monitor
+
+    pm.time_us.append(int(msg.TimeUS))
+    pm.load.append(int(msg.Load))
+    pm.mem.append(int(msg.Mem))
+    pm.loop_rate.append(int(msg.LR))
+    pm.int_err_bitmask.append(int(msg.InE))
+    pm.long_loops.append(int(msg.NLon))
+
+
+def process_param(msg: Any, log_data: LogData) -> None:  # noqa: ANN401
+    """
+    Validate and store a single PARM log entry into log_data's parameter dicts.
+
+    Each of default_params and current_params is populated independently from the
+    first PARM occurrence that carries a non-None value for that field.  Entries
+    with invalid or overly long names are skipped with a warning.  Once both
+    dicts contain a value for a given name, further occurrences are ignored.
+
+    Args:
+      msg: A PARM log entry object parsed from an ArduPilot .bin file
+           (returned by mavutil.mavfile.recv_match()).
+      log_data: The LogData instance to write param values into.
 
     """
     pname = str(msg.Name)
@@ -194,27 +232,34 @@ def process_param(msg: mavutil.mavfile, log_data: LogData) -> None:
     if not is_param_name_format_valid(pname):
         logging.warning("Invalid parameter name %s", pname)
         return
-    if pname in log_data.default_params:
+    already_has_default = pname in log_data.default_params
+    already_has_current = pname in log_data.current_params
+    if already_has_default and already_has_current:
         return
-    if msg.Default is not None:
+    if not already_has_default and msg.Default is not None:
         log_data.default_params[pname] = float(msg.Default)
-    if msg.Value is not None:
+    if not already_has_current and msg.Value is not None:
         log_data.current_params[pname] = float(msg.Value)
 
 
-def process_ver(msg: mavutil.mavfile) -> tuple[str, int, int, int] | None:
+def process_ver(msg: Any) -> tuple[str, int, int, int] | None:  # noqa: ANN401
     """
-    Extract firmware version from VER message.
+    Extract firmware version from a VER DataFlash log entry.
 
     Args:
-      msg: A VER log entry parsed from an ArduPilot .bin file.
+      msg: A VER log entry object parsed from an ArduPilot .bin file
+           (returned by mavutil.mavfile.recv_match()).
 
     Returns:
-      A tuple of (vehicle_type, major, minor, patch), e.g. ("ArduCopter", 4, 6, 3).
+      A tuple of (vehicle_type, major, minor, patch), e.g. ("ArduCopter", 4, 6, 3),
+      or None if any version field is missing or vehicle_type cannot be determined.
 
     """
     fws = str(msg.FWS)  # e.g. "ArduCopter V4.6.3"
-    vehicle_type = fws.split(maxsplit=1)[0] if fws else ""
+    parts = fws.split(maxsplit=1)
+    vehicle_type = parts[0] if parts else ""
+    if not vehicle_type:
+        return None
     maj, mini, pat = msg.Maj, msg.Min, msg.Pat
     if maj is None or mini is None or pat is None:
         return None
@@ -223,17 +268,19 @@ def process_ver(msg: mavutil.mavfile) -> tuple[str, int, int, int] | None:
 
 
 def process_msg_version_fallback(
-    msg: mavutil.mavfile, firmware_from_msg: tuple[str, int, int, int] | None
+    msg: Any,  # noqa: ANN401
+    firmware_from_msg: tuple[str, int, int, int] | None,
 ) -> tuple[str, int, int, int] | None:
     """
-    Extract firmware version from MSG message.
+    Extract firmware version from a MSG DataFlash log entry.
 
     Falls back to scanning MSG messages until one with a parseable "Vx.y" version
     is found (e.g. "ArduCopter V4.6.3 (hash)").
 
     Args:
-      msg: A MSG log entry parsed from an ArduPilot .bin file.
-      firmware_from_msg: If any previously found message from MSG, or None.
+      msg: A MSG log entry object parsed from an ArduPilot .bin file
+           (returned by mavutil.mavfile.recv_match()).
+      firmware_from_msg: A previously found result from a MSG entry, or None.
 
     Returns:
       The existing result unchanged if already found, a newly parsed tuple
@@ -263,18 +310,20 @@ def process_frame_type(log_data: LogData) -> None:
     frame_type_val = log_data.current_params.get("FRAME_TYPE")
     if frame_type_val is not None:
         log_data.frame_type = int(frame_type_val)
+    else:
+        logging.debug("FRAME_TYPE parameter not found in log; frame_type remains None")
 
 
 if __name__ == "__main__":
-    reader = LogReader("altitude_estimation_4.7.bin")
+    reader = extract_log("altitude_estimation_4.7.bin")
     data = reader.extract_log()
-    batt = data.batteries.get(0)
-    if batt:
-        print(len(batt.timeUS))
-        print(batt.volt[0])
-        print(min(batt.timeUS))
-        print(max(batt.timeUS))
-        print(batt.state_health)
+    # batt = data.batteries.get(0)
+    # if batt:
+    #     print(len(batt.timeUS))
+    #     print(batt.volt[0])
+    #     print(min(batt.timeUS))
+    #     print(max(batt.timeUS))
+    #     print(batt.state_health)
 
 
 #     print(data.firmware_info)
