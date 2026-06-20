@@ -19,8 +19,8 @@ import argcomplete
 from argcomplete.completers import FilesCompleter
 from pymavlink import mavutil
 
-from AI_Assisted_Log_Diagnosis.amc_additions.log_analysis.backend_log_extraction import 
-( is_param_name_format_valid,
+from AI_Assisted_Log_Diagnosis.amc_additions.log_analysis.backend_log_extraction import ( 
+ is_param_name_format_valid,
  is_param_name_too_long, 
  process_msg_version_fallback, 
  process_ver
