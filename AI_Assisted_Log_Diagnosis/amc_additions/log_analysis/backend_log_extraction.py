@@ -76,7 +76,8 @@ class BatteryData:  # pylint: disable=too-many-instance-attributes,too-few-publi
         self.health: list[int] = []
         self.state_health: list[int] = []
 
-class PMData: # pylint: disable=too-many-instance-attributes
+
+class PMData:  # pylint: disable=too-many-instance-attributes
     """Stores Flight Controller's CPU performance telemetry data extracted from PM messages."""
 
     def __init__(self) -> None:
@@ -87,8 +88,15 @@ class PMData: # pylint: disable=too-many-instance-attributes
         self.int_err_bitmask: list[int] = []
         self.long_loops: list[int] = []
 
+
 class IMUData:
-    """Stores Inertial Measurement Unit data extracted from IMU messages."""
+    """
+    Stores Inertial Measurement Unit data extracted from IMU messages.
+
+    Note:
+        GyrX,Y,Z are in rad/s.
+
+    """
 
     def __init__(self) -> None:
         self.time_us: list[int] = []
@@ -98,13 +106,14 @@ class IMUData:
         self.acc_x: list[float] = []
         self.acc_y: list[float] = []
         self.acc_z: list[float] = []
-        self.err_gyro: list[float] = []
-        self.err_acc: list[float] = []
+        self.err_gyro: list[int] = []
+        self.err_acc: list[int] = []
         self.temp: list[float] = []
         self.gyro_hlt: list[int] = []
         self.acc_hlt: list[int] = []
         self.gyro_rate: list[int] = []
         self.acc_rate: list[int] = []
+
 
 class VibeData:
     """Stores Processed Vibration Information data extracted from VIBE messages."""
@@ -115,6 +124,39 @@ class VibeData:
         self.vibe_y: list[float] = []
         self.vibe_z: list[float] = []
         self.clip: list[int] = []
+
+
+class GPSData:
+    """
+    Stores GPS/GNSS data extracted from GPS messages.
+
+    Note:
+        GCrs and Yaw are in degrees, unlike GyrX,Y,Z. Have to convert before any operation.
+
+    """
+
+    def __init__(self) -> None:
+        self.time_us: list[int] = []
+        self.status: list[int] = []
+        self.num_sats: list[int] = []
+        self.hor_dop: list[float] = []
+        self.lat: list[float] = []
+        self.lng: list[float] = []
+        self.alt: list[float] = []
+        self.spd: list[float] = []
+        self.gcrs: list[float] = []
+        self.vz: list[float] = []
+        self.yaw: list[float] = []
+        self.in_use: list[bool] = []  # Boolean value
+        # GMS/GWk not captured; TimeUS covers rate for analysis needs
+
+class ERRMsg:
+
+    #A log might not contain the ERR field
+    def __init__(self) -> None:
+        self.time_us: list[int] = []
+        self.sub_sys: list[int] = []
+        self.err_code: list[int] = []
 
 class LogData:  # pylint: disable=too-few-public-methods
     """Contains all data extracted from an ArduPilot .bin log."""
@@ -128,8 +170,14 @@ class LogData:  # pylint: disable=too-few-public-methods
         # There could be multiple batteries in the vehicle, so create a separate dict for them.
         self.batteries: dict[int, BatteryData] = {}
         self.performance_monitor = PMData()
+        # There could be multiple IMU sensors in the vehicle, so create a separate dict for them.
         self.imu_data: dict[int, IMUData] = {}
+        # There could be multiple VIBE instances, so create a separate dict for them.
         self.vibe_data: dict[int, VibeData] = {}
+        # There could be multiple GPS modules in the vehicle, so create a separate dict for them.
+        self.gps_data: dict[int, GPSData] = {}
+
+        self.err_data = ERRMsg()
 
 
 def extract_log(logfile: str) -> LogData:
@@ -182,8 +230,17 @@ def extract_log(logfile: str) -> LogData:
             elif msg_type == "IMU":
                 process_imu(msg, log_data)
 
+            # Extract VIBE messages and store them in VibeData
             elif msg_type == "VIBE":
                 process_vibe(msg, log_data)
+
+            # Extract GPS messages and store them in GPSData
+            elif msg_type == "GPS":
+                process_gps(msg, log_data)
+
+            # Extract ERR message and store them in ERRData
+            elif msg_type == "ERR":
+                process_err(msg, log_data)
 
         if firmware_from_ver is not None:
             log_data.firmware_info = firmware_from_ver
@@ -229,6 +286,7 @@ def process_bat(msg: Any, log_data: LogData) -> None:  # noqa: ANN401
     battery.health.append(int(getattr(msg, "H", 0)))
     battery.state_health.append(int(getattr(msg, "SH", 0)))
 
+
 def process_performance(msg: Any, log_data: LogData) -> None:  # noqa: ANN401
     """
     Extract performance telemetry from a PM DataFlash log entry.
@@ -245,9 +303,10 @@ def process_performance(msg: Any, log_data: LogData) -> None:  # noqa: ANN401
     pm.load.append(int(msg.Load))
     pm.mem.append(int(msg.Mem))
     pm.loop_rate.append(int(msg.LR))
-    # InE renamed from IntE between firmware 4.5.4 and 4.7.0.
-    pm.int_err_bitmask.append(int(getattr(msg, "InE", getattr(msg, "IntE", 0))))
+    # InE renamed from IntE between firmware 4.5.4 and 4.7.0. # codespell:ignore
+    pm.int_err_bitmask.append(int(getattr(msg, "InE", getattr(msg, "IntE", 0))))  # codespell:ignore
     pm.long_loops.append(int(msg.NLon))
+
 
 def process_imu(msg: Any, log_data: LogData) -> None:  # noqa: ANN401
     """
@@ -259,6 +318,7 @@ def process_imu(msg: Any, log_data: LogData) -> None:  # noqa: ANN401
         log_data: The LogData instance to write IMU data into.
 
     """
+    # If there are multiple IMU sensors
     imu_inst = int(msg.I)
     if imu_inst not in log_data.imu_data:
         log_data.imu_data[imu_inst] = IMUData()
@@ -271,15 +331,26 @@ def process_imu(msg: Any, log_data: LogData) -> None:  # noqa: ANN401
     imu.acc_x.append(float(msg.AccX))
     imu.acc_y.append(float(msg.AccY))
     imu.acc_z.append(float(msg.AccZ))
-    imu.err_gyro.append(float(msg.EG))
-    imu.err_acc.append(float(msg.EA))
+    imu.err_gyro.append(int(msg.EG))
+    imu.err_acc.append(int(msg.EA))
     imu.temp.append(float(msg.T))
     imu.gyro_hlt.append(int(getattr(msg, "GH", 0)))
     imu.acc_hlt.append(int(getattr(msg, "AH", 0)))
     imu.gyro_rate.append(int(msg.GHz))
     imu.acc_rate.append(int(msg.AHz))
 
-def process_vibe(msg: Any, log_data: LogData) -> None: # noqa: ANN401
+
+def process_vibe(msg: Any, log_data: LogData) -> None:  # noqa: ANN401
+    """
+    Extract VIBE Data from an IMU DataFlash log entry.
+
+    Args:
+        msg: An VIBE log entry object parsed from an ArduPilot .bin file
+             (returned by mavutil.mavfile.recv_match()).
+        log_data: The LogData instance to write VIBE data into.
+
+    """
+    # If there are multiple instances of IMU
     vibe_inst = int(msg.IMU)
     if vibe_inst not in log_data.vibe_data:
         log_data.vibe_data[vibe_inst] = VibeData()
@@ -290,6 +361,33 @@ def process_vibe(msg: Any, log_data: LogData) -> None: # noqa: ANN401
     vibe.vibe_y.append(float(msg.VibeY))
     vibe.vibe_z.append(float(msg.VibeZ))
     vibe.clip.append(int(msg.Clip))
+
+
+def process_gps(msg: Any, log_data: LogData) -> None:  # noqa: ANN401
+    gps_inst = int(msg.I)
+    if gps_inst not in log_data.gps_data:
+        log_data.gps_data[gps_inst] = GPSData()
+    gps = log_data.gps_data[gps_inst]
+
+    gps.time_us.append(int(msg.TimeUS))
+    gps.status.append(int(msg.Status))
+    gps.num_sats.append(int(msg.NSats))
+    gps.hor_dop.append(float(msg.HDop))
+    gps.lat.append(float(msg.Lat))
+    gps.lng.append(float(msg.Lng))
+    gps.alt.append(float(msg.Alt))
+    gps.spd.append(float(msg.Spd))
+    gps.gcrs.append(float(msg.GCrs))
+    gps.vz.append(float(msg.VZ))
+    gps.yaw.append(float(msg.Yaw))
+    gps.in_use.append(bool(msg.U))
+
+def process_err(msg: Any, log_data: LogData) -> None:
+    err = log_data.err_data
+
+    err.time_us.append(msg.TimeUS)
+    err.sub_sys.append(msg.Subsys)
+    err.err_code.append(msg.ECode)
 
 def process_param(msg: Any, log_data: LogData) -> None:  # noqa: ANN401
     """
@@ -396,7 +494,7 @@ def process_frame_type(log_data: LogData) -> None:
 
 if __name__ == "__main__":
     data = extract_log("altitude_estimation_4.7.bin")
-    print("IMU Instances:", list(data.imu_data.keys()))
+    # print("IMU Instances:", list(data.imu_data.keys()))
 
     # for inst, imu in data.imu_data.items():
     #     print(f"\nIMU {inst}")
