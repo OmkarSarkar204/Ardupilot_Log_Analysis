@@ -86,6 +86,36 @@ class PMData: # pylint: disable=too-many-instance-attributes
         self.loop_rate: list[int] = []
         self.int_err_bitmask: list[int] = []
         self.long_loops: list[int] = []
+
+class IMUData:
+    """Stores Inertial Measurement Unit data extracted from IMU messages."""
+
+    def __init__(self) -> None:
+        self.time_us: list[int] = []
+        self.gyr_x: list[float] = []
+        self.gyr_y: list[float] = []
+        self.gyr_z: list[float] = []
+        self.acc_x: list[float] = []
+        self.acc_y: list[float] = []
+        self.acc_z: list[float] = []
+        self.err_gyro: list[float] = []
+        self.err_acc: list[float] = []
+        self.temp: list[float] = []
+        self.gyro_hlt: list[int] = []
+        self.acc_hlt: list[int] = []
+        self.gyro_rate: list[int] = []
+        self.acc_rate: list[int] = []
+
+class VibeData:
+    """Stores Processed Vibration Information data extracted from VIBE messages."""
+
+    def __init__(self) -> None:
+        self.time_us: list[int] = []
+        self.vibe_x: list[float] = []
+        self.vibe_y: list[float] = []
+        self.vibe_z: list[float] = []
+        self.clip: list[int] = []
+
 class LogData:  # pylint: disable=too-few-public-methods
     """Contains all data extracted from an ArduPilot .bin log."""
 
@@ -98,6 +128,8 @@ class LogData:  # pylint: disable=too-few-public-methods
         # There could be multiple batteries in the vehicle, so create a separate dict for them.
         self.batteries: dict[int, BatteryData] = {}
         self.performance_monitor = PMData()
+        self.imu_data: dict[int, IMUData] = {}
+        self.vibe_data: dict[int, VibeData] = {}
 
 
 def extract_log(logfile: str) -> LogData:
@@ -146,6 +178,13 @@ def extract_log(logfile: str) -> LogData:
             elif msg_type == "PM":
                 process_performance(msg, log_data)
 
+            # Extract IMU messages and store them in IMUData
+            elif msg_type == "IMU":
+                process_imu(msg, log_data)
+
+            elif msg_type == "VIBE":
+                process_vibe(msg, log_data)
+
         if firmware_from_ver is not None:
             log_data.firmware_info = firmware_from_ver
         else:
@@ -171,10 +210,10 @@ def process_bat(msg: Any, log_data: LogData) -> None:  # noqa: ANN401
 
     """
     # If there are multiple battery instances store them separately
-    inst = int(msg.Inst)
-    if inst not in log_data.batteries:
-        log_data.batteries[inst] = BatteryData()
-    battery = log_data.batteries[inst]
+    bat_inst = int(msg.Inst)
+    if bat_inst not in log_data.batteries:
+        log_data.batteries[bat_inst] = BatteryData()
+    battery = log_data.batteries[bat_inst]
 
     battery.time_us.append(int(msg.TimeUS))
     battery.volt.append(float(msg.Volt))
@@ -206,9 +245,51 @@ def process_performance(msg: Any, log_data: LogData) -> None:  # noqa: ANN401
     pm.load.append(int(msg.Load))
     pm.mem.append(int(msg.Mem))
     pm.loop_rate.append(int(msg.LR))
-    pm.int_err_bitmask.append(int(msg.InE))
+    # InE renamed from IntE between firmware 4.5.4 and 4.7.0.
+    pm.int_err_bitmask.append(int(getattr(msg, "InE", getattr(msg, "IntE", 0))))
     pm.long_loops.append(int(msg.NLon))
 
+def process_imu(msg: Any, log_data: LogData) -> None:  # noqa: ANN401
+    """
+    Extract inertial Data from an IMU DataFlash log entry.
+
+    Args:
+        msg: An IMU log entry object parsed from an ArduPilot .bin file
+             (returned by mavutil.mavfile.recv_match()).
+        log_data: The LogData instance to write IMU data into.
+
+    """
+    imu_inst = int(msg.I)
+    if imu_inst not in log_data.imu_data:
+        log_data.imu_data[imu_inst] = IMUData()
+    imu = log_data.imu_data[imu_inst]
+
+    imu.time_us.append(int(msg.TimeUS))
+    imu.gyr_x.append(float(msg.GyrX))
+    imu.gyr_y.append(float(msg.GyrY))
+    imu.gyr_z.append(float(msg.GyrZ))
+    imu.acc_x.append(float(msg.AccX))
+    imu.acc_y.append(float(msg.AccY))
+    imu.acc_z.append(float(msg.AccZ))
+    imu.err_gyro.append(float(msg.EG))
+    imu.err_acc.append(float(msg.EA))
+    imu.temp.append(float(msg.T))
+    imu.gyro_hlt.append(int(getattr(msg, "GH", 0)))
+    imu.acc_hlt.append(int(getattr(msg, "AH", 0)))
+    imu.gyro_rate.append(int(msg.GHz))
+    imu.acc_rate.append(int(msg.AHz))
+
+def process_vibe(msg: Any, log_data: LogData) -> None: # noqa: ANN401
+    vibe_inst = int(msg.IMU)
+    if vibe_inst not in log_data.vibe_data:
+        log_data.vibe_data[vibe_inst] = VibeData()
+    vibe = log_data.vibe_data[vibe_inst]
+
+    vibe.time_us.append(int(msg.TimeUS))
+    vibe.vibe_x.append(float(msg.VibeX))
+    vibe.vibe_y.append(float(msg.VibeY))
+    vibe.vibe_z.append(float(msg.VibeZ))
+    vibe.clip.append(int(msg.Clip))
 
 def process_param(msg: Any, log_data: LogData) -> None:  # noqa: ANN401
     """
@@ -313,10 +394,52 @@ def process_frame_type(log_data: LogData) -> None:
     else:
         logging.debug("FRAME_TYPE parameter not found in log; frame_type remains None")
 
-
 if __name__ == "__main__":
-    reader = extract_log("altitude_estimation_4.7.bin")
-    data = reader.extract_log()
+    data = extract_log("altitude_estimation_4.7.bin")
+    print("IMU Instances:", list(data.imu_data.keys()))
+
+    # for inst, imu in data.imu_data.items():
+    #     print(f"\nIMU {inst}")
+    #     print("Samples:", len(imu.time_us))
+    #     print("First TimeUS:", imu.time_us[0])
+    #     print("Last TimeUS:", imu.time_us[-1])
+
+    #     print("Gyro X Range:", min(imu.gyr_x), max(imu.gyr_x))
+    #     print("Gyro Y Range:", min(imu.gyr_y), max(imu.gyr_y))
+    #     print("Gyro Z Range:", min(imu.gyr_z), max(imu.gyr_z))
+
+    #     print("Accel X Range:", min(imu.acc_x), max(imu.acc_x))
+    #     print("Accel Y Range:", min(imu.acc_y), max(imu.acc_y))
+    #     print("Accel Z Range:", min(imu.acc_z), max(imu.acc_z))
+
+    #     print("Max Gyro Errors:", max(imu.err_gyro))
+    #     print("Max Accel Errors:", max(imu.err_acc))
+
+    #     print("Unique Gyro Health:", set(imu.gyro_hlt))
+    #     print("Unique Accel Health:", set(imu.acc_hlt))
+
+    #     print("Gyro Rate:", set(imu.gyro_rate))
+    #     print("Accel Rate:", set(imu.acc_rate))
+
+    # pm = data.performance_monitor
+
+    # print("PM Samples:", len(pm.time_us))
+
+    # if pm.time_us:
+    #     print("First TimeUS:", pm.time_us[0])
+    #     print("Last TimeUS:", pm.time_us[-1])
+
+    #     print("Max CPU Load:", max(pm.load))
+    #     print("Average CPU Load:", sum(pm.load) / len(pm.load))
+
+    #     print("Minimum Free Memory:", min(pm.mem))
+
+    #     print("Max Long Loops:", max(pm.long_loops))
+
+    #     print("Internal Errors Seen:", any(mask != 0 for mask in pm.int_err_bitmask))
+    #     print(data.messages["PM"])
+    #     print(len(data.performance_monitor.time_us))
+    #     print(set(data.performance_monitor.int_err_bitmask))
     # batt = data.batteries.get(0)
     # if batt:
     #     print(len(batt.timeUS))
