@@ -77,7 +77,7 @@ class BatteryData:  # pylint: disable=too-many-instance-attributes,too-few-publi
         self.state_health: list[int] = []
 
 
-class PMData:  # pylint: disable=too-many-instance-attributes
+class PMData:  # pylint: disable=too-few-public-methods
     """Stores Flight Controller's CPU performance telemetry data extracted from PM messages."""
 
     def __init__(self) -> None:
@@ -89,7 +89,7 @@ class PMData:  # pylint: disable=too-many-instance-attributes
         self.long_loops: list[int] = []
 
 
-class IMUData:
+class IMUData:  # pylint: disable=too-many-instance-attributes,too-few-public-methods
     """
     Stores Inertial Measurement Unit data extracted from IMU messages.
 
@@ -115,7 +115,7 @@ class IMUData:
         self.acc_rate: list[int] = []
 
 
-class VibeData:
+class VibeData:  # pylint: disable=too-few-public-methods
     """Stores Processed Vibration Information data extracted from VIBE messages."""
 
     def __init__(self) -> None:
@@ -126,7 +126,7 @@ class VibeData:
         self.clip: list[int] = []
 
 
-class GPSData:
+class GPSData:  # pylint: disable=too-many-instance-attributes,too-few-public-methods
     """
     Stores GPS/GNSS data extracted from GPS messages.
 
@@ -147,18 +147,41 @@ class GPSData:
         self.gcrs: list[float] = []
         self.vz: list[float] = []
         self.yaw: list[float] = []
-        self.in_use: list[bool] = []  # Boolean value
+        self.in_use: list[int] = []  # Boolean value
         # GMS/GWk not captured; TimeUS covers rate for analysis needs
 
-class ERRMsg:
 
-    #A log might not contain the ERR field
+class ERRMsg:  # pylint: disable=too-few-public-methods
+    """Stores subsystem error events extracted from ERR messages."""
+
+    # A log might not contain the ERR field
     def __init__(self) -> None:
         self.time_us: list[int] = []
         self.sub_sys: list[int] = []
         self.err_code: list[int] = []
 
-class LogData:  # pylint: disable=too-few-public-methods
+
+class ModeInfo:  # pylint: disable=too-few-public-methods
+    """Stores flight mode transition events extracted from MODE messages."""
+
+    def __init__(self) -> None:
+        self.time_us: list[int] = []
+        self.mode_num: list[int] = []
+        self.rsn: list[int] = []  # reason for mode change
+
+
+class ARMStat:  # pylint: disable=too-few-public-methods
+    """Stores arming and disarming events extracted from ARM messages."""
+
+    def __init__(self) -> None:
+        self.time_us: list[int] = []
+        self.arm_state: list[int] = []
+        self.arm_chks: list[int] = []
+        self.forced: list[bool] = []
+        self.method: list[int] = []
+
+
+class LogData:  # pylint: disable=too-many-instance-attributes,too-few-public-methods
     """Contains all data extracted from an ArduPilot .bin log."""
 
     def __init__(self) -> None:
@@ -176,11 +199,12 @@ class LogData:  # pylint: disable=too-few-public-methods
         self.vibe_data: dict[int, VibeData] = {}
         # There could be multiple GPS modules in the vehicle, so create a separate dict for them.
         self.gps_data: dict[int, GPSData] = {}
-
         self.err_data = ERRMsg()
+        self.arm_info = ARMStat()
+        self.mode_info = ModeInfo()
 
 
-def extract_log(logfile: str) -> LogData:
+def extract_log(logfile: str) -> LogData:  # pylint: disable=too-many-branches
     """
     Open the log file, scan every message, and return the LogData.
 
@@ -241,6 +265,14 @@ def extract_log(logfile: str) -> LogData:
             # Extract ERR message and store them in ERRData
             elif msg_type == "ERR":
                 process_err(msg, log_data)
+
+            # Extract ARM messages and store them in ARMStat
+            elif msg_type == "ARM":
+                process_arm_stat(msg, log_data)
+
+            # Extract MODE messages and store them in Mode
+            elif msg_type == "MODE":
+                process_mode(msg, log_data)
 
         if firmware_from_ver is not None:
             log_data.firmware_info = firmware_from_ver
@@ -364,6 +396,15 @@ def process_vibe(msg: Any, log_data: LogData) -> None:  # noqa: ANN401
 
 
 def process_gps(msg: Any, log_data: LogData) -> None:  # noqa: ANN401
+    """
+    Extract GPS/GNSS telemetry from a GPS DataFlash log entry.
+
+    Args:
+        msg: A GPS log entry object parsed from an ArduPilot .bin file
+             (returned by mavutil.mavfile.recv_match()).
+        log_data: The LogData instance to write GPS data into.
+
+    """
     gps_inst = int(msg.I)
     if gps_inst not in log_data.gps_data:
         log_data.gps_data[gps_inst] = GPSData()
@@ -380,14 +421,61 @@ def process_gps(msg: Any, log_data: LogData) -> None:  # noqa: ANN401
     gps.gcrs.append(float(msg.GCrs))
     gps.vz.append(float(msg.VZ))
     gps.yaw.append(float(msg.Yaw))
-    gps.in_use.append(bool(msg.U))
+    gps.in_use.append(int(msg.U))
 
-def process_err(msg: Any, log_data: LogData) -> None:
+
+def process_err(msg: Any, log_data: LogData) -> None:  # noqa: ANN401
+    """
+    Extract subsystem error data from an ERR DataFlash log entry.
+
+    Args:
+        msg: An ERR log entry object parsed from an ArduPilot .bin file
+             (returned by mavutil.mavfile.recv_match()).
+        log_data: The LogData instance to write error data into.
+
+    """
     err = log_data.err_data
 
-    err.time_us.append(msg.TimeUS)
-    err.sub_sys.append(msg.Subsys)
-    err.err_code.append(msg.ECode)
+    err.time_us.append(int(msg.TimeUS))
+    err.sub_sys.append(int(msg.Subsys))
+    err.err_code.append(int(msg.ECode))
+
+
+def process_arm_stat(msg: Any, log_data: LogData) -> None:  # noqa: ANN401
+    """
+    Extract arming status from an ARM DataFlash log entry.
+
+    Args:
+        msg: An ARM log entry object parsed from an ArduPilot .bin file
+             (returned by mavutil.mavfile.recv_match()).
+        log_data: The LogData instance to write arming data into.
+
+    """
+    arm = log_data.arm_info
+
+    arm.time_us.append(int(msg.TimeUS))
+    arm.arm_state.append(int(msg.ArmState))
+    arm.arm_chks.append(int(msg.ArmChecks))
+    arm.forced.append(bool(msg.Forced))
+    arm.method.append(int(msg.Method))
+
+
+def process_mode(msg: Any, log_data: LogData) -> None:  # noqa: ANN401
+    """
+    Extract flight mode transition data from a MODE DataFlash log entry.
+
+    Args:
+        msg: A MODE log entry object parsed from an ArduPilot .bin file
+             (returned by mavutil.mavfile.recv_match()).
+        log_data: The LogData instance to write mode data into.
+
+    """
+    mode = log_data.mode_info
+
+    mode.time_us.append(int(msg.TimeUS))
+    mode.mode_num.append(int(msg.ModeNum))
+    mode.rsn.append(int(msg.Rsn))
+
 
 def process_param(msg: Any, log_data: LogData) -> None:  # noqa: ANN401
     """
@@ -493,7 +581,12 @@ def process_frame_type(log_data: LogData) -> None:
         logging.debug("FRAME_TYPE parameter not found in log; frame_type remains None")
 
 if __name__ == "__main__":
-    data = extract_log("altitude_estimation_4.7.bin")
+    data = extract_log("2026-05-31 20-59-44.bin")
+    print("ISBH:", data.messages.get("ISBH", 0))
+    print("ISBD:", data.messages.get("ISBD", 0))
+    # print("ERR count:", data.messages.get("ERR", 0))
+    # print("All message types:")
+    # print(sorted(data.messages.keys()))
     # print("IMU Instances:", list(data.imu_data.keys()))
 
     # for inst, imu in data.imu_data.items():
