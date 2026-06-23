@@ -11,7 +11,7 @@ import logging
 import re
 from typing import Any
 
-from pymavlink import mavutil
+from ardupilot_methodic_configurator.log_analysis.backend_log_parsing import parse_log
 
 PARAM_NAME_REGEX = r"^[A-Z][A-Z_0-9]*$"
 PARAM_NAME_MAX_LEN = 16
@@ -25,37 +25,6 @@ def is_param_name_too_long(pname: str) -> bool:
 def is_param_name_format_valid(pname: str) -> bool:
     """Return True if the parameter name matches the PARAM_NAME_REGEX pattern."""
     return bool(re.match(PARAM_NAME_REGEX, pname))
-
-
-def open_log(logfile: str) -> mavutil.mavfile:
-    """
-    Open an ArduPilot log file.
-
-    Args:
-      logfile: The path to an Ardupilot .bin log file.
-
-    Returns:
-      A mavutil.mavfile connection object.
-
-    """
-    try:
-        mlog = mavutil.mavlink_connection(logfile)
-    except Exception as e:
-        msg = f"Error opening the {logfile} logfile: {e!s}"
-        raise OSError(msg) from e
-    return mlog  # pyright: ignore[reportReturnType]  # pymavlink stubs include CSVReader which doesn't extend mavfile
-
-
-def close_log(mlog: mavutil.mavfile) -> None:
-    """
-    Close an ArduPilot log file.
-
-    Args:
-      mlog: The mavutil.mavfile connection to close.
-
-    """
-    with contextlib.suppress(OSError):
-        mlog.close()
 
 
 class BatteryData:  # pylint: disable=too-many-instance-attributes,too-few-public-methods
@@ -212,7 +181,8 @@ def extract_log(logfile: str) -> LogData:  # pylint: disable=too-many-branches
         logfile: The path to an ArduPilot .bin log file.
 
     Returns:
-        A populated LogData object containing parameters, firmware info, message counts, and frame type.
+        A populated LogData object containing parameters, firmware info,
+        message counts, and frame type.
 
     """
     log_data = LogData()
@@ -220,70 +190,61 @@ def extract_log(logfile: str) -> LogData:  # pylint: disable=too-many-branches
     firmware_from_ver: tuple[str, int, int, int] | None = None
     firmware_from_msg: tuple[str, int, int, int] | None = None
 
-    mlog = open_log(logfile)
+    for msg in parse_log(logfile):
+        msg_type = msg.get_type()
+        message_counts[msg_type] = message_counts.get(msg_type, 0) + 1
 
-    try:
-        while True:
-            msg = mlog.recv_match()
-            if msg is None:
-                break
-            msg_type = msg.get_type()
-            message_counts[msg_type] = message_counts.get(msg_type, 0) + 1
+        # Extract PARM messages and store them, also is used in extract_param_defaults.py
+        if msg_type == "PARM":
+            process_param(msg, log_data)
 
-            # Extract PARM messages and store them, also is used in extract_param_defaults.py
-            if msg_type == "PARM":
-                process_param(msg, log_data)
+        # Extract the Version with Vehicle_type, Major, Minor and Patch.
+        elif msg_type == "VER":
+            firmware_from_ver = process_ver(msg)
 
-            # Extract the Version with Vehicle_type, Major, Minor and Patch.
-            elif msg_type == "VER":
-                firmware_from_ver = process_ver(msg)
+        # Fallback to MSG if version is not available.
+        elif msg_type == "MSG":
+            firmware_from_msg = process_msg_version_fallback(msg, firmware_from_msg)
 
-            # Fallback to MSG if version is not available.
-            elif msg_type == "MSG":
-                firmware_from_msg = process_msg_version_fallback(msg, firmware_from_msg)
+        # Extract the BAT messages and store them in BatteryData
+        elif msg_type == "BAT":
+            process_bat(msg, log_data)
 
-            # Extract the BAT messages and store them in BatteryData
-            elif msg_type == "BAT":
-                process_bat(msg, log_data)
+        # Extract the PM messages and store them in PMData
+        elif msg_type == "PM":
+            process_performance(msg, log_data)
 
-            # Extract the PM messages and store them in PMData
-            elif msg_type == "PM":
-                process_performance(msg, log_data)
+        # Extract IMU messages and store them in IMUData
+        elif msg_type == "IMU":
+            process_imu(msg, log_data)
 
-            # Extract IMU messages and store them in IMUData
-            elif msg_type == "IMU":
-                process_imu(msg, log_data)
+        # Extract VIBE messages and store them in VibeData
+        elif msg_type == "VIBE":
+            process_vibe(msg, log_data)
 
-            # Extract VIBE messages and store them in VibeData
-            elif msg_type == "VIBE":
-                process_vibe(msg, log_data)
+        # Extract GPS messages and store them in GPSData
+        elif msg_type == "GPS":
+            process_gps(msg, log_data)
 
-            # Extract GPS messages and store them in GPSData
-            elif msg_type == "GPS":
-                process_gps(msg, log_data)
+        # Extract ERR message and store them in ERRData
+        elif msg_type == "ERR":
+            process_err(msg, log_data)
 
-            # Extract ERR message and store them in ERRData
-            elif msg_type == "ERR":
-                process_err(msg, log_data)
+        # Extract ARM messages and store them in ARMStat
+        elif msg_type == "ARM":
+            process_arm_stat(msg, log_data)
 
-            # Extract ARM messages and store them in ARMStat
-            elif msg_type == "ARM":
-                process_arm_stat(msg, log_data)
+        # Extract MODE messages and store them in Mode
+        elif msg_type == "MODE":
+            process_mode(msg, log_data)
 
-            # Extract MODE messages and store them in Mode
-            elif msg_type == "MODE":
-                process_mode(msg, log_data)
+    if firmware_from_ver is not None:
+        log_data.firmware_info = firmware_from_ver
+    else:
+        log_data.firmware_info = firmware_from_msg
 
-        if firmware_from_ver is not None:
-            log_data.firmware_info = firmware_from_ver
-        else:
-            log_data.firmware_info = firmware_from_msg
-
-        process_frame_type(log_data)
-        log_data.messages = message_counts
-
-    finally:
-        close_log(mlog)
+    process_frame_type(log_data)
+    log_data.messages = message_counts
 
     return log_data
 
@@ -579,76 +540,3 @@ def process_frame_type(log_data: LogData) -> None:
         log_data.frame_type = int(frame_type_val)
     else:
         logging.debug("FRAME_TYPE parameter not found in log; frame_type remains None")
-
-if __name__ == "__main__":
-    data = extract_log("2026-05-31 20-59-44.bin")
-    print("ISBH:", data.messages.get("ISBH", 0))
-    print("ISBD:", data.messages.get("ISBD", 0))
-    # print("ERR count:", data.messages.get("ERR", 0))
-    # print("All message types:")
-    # print(sorted(data.messages.keys()))
-    # print("IMU Instances:", list(data.imu_data.keys()))
-
-    # for inst, imu in data.imu_data.items():
-    #     print(f"\nIMU {inst}")
-    #     print("Samples:", len(imu.time_us))
-    #     print("First TimeUS:", imu.time_us[0])
-    #     print("Last TimeUS:", imu.time_us[-1])
-
-    #     print("Gyro X Range:", min(imu.gyr_x), max(imu.gyr_x))
-    #     print("Gyro Y Range:", min(imu.gyr_y), max(imu.gyr_y))
-    #     print("Gyro Z Range:", min(imu.gyr_z), max(imu.gyr_z))
-
-    #     print("Accel X Range:", min(imu.acc_x), max(imu.acc_x))
-    #     print("Accel Y Range:", min(imu.acc_y), max(imu.acc_y))
-    #     print("Accel Z Range:", min(imu.acc_z), max(imu.acc_z))
-
-    #     print("Max Gyro Errors:", max(imu.err_gyro))
-    #     print("Max Accel Errors:", max(imu.err_acc))
-
-    #     print("Unique Gyro Health:", set(imu.gyro_hlt))
-    #     print("Unique Accel Health:", set(imu.acc_hlt))
-
-    #     print("Gyro Rate:", set(imu.gyro_rate))
-    #     print("Accel Rate:", set(imu.acc_rate))
-
-    # pm = data.performance_monitor
-
-    # print("PM Samples:", len(pm.time_us))
-
-    # if pm.time_us:
-    #     print("First TimeUS:", pm.time_us[0])
-    #     print("Last TimeUS:", pm.time_us[-1])
-
-    #     print("Max CPU Load:", max(pm.load))
-    #     print("Average CPU Load:", sum(pm.load) / len(pm.load))
-
-    #     print("Minimum Free Memory:", min(pm.mem))
-
-    #     print("Max Long Loops:", max(pm.long_loops))
-
-    #     print("Internal Errors Seen:", any(mask != 0 for mask in pm.int_err_bitmask))
-    #     print(data.messages["PM"])
-    #     print(len(data.performance_monitor.time_us))
-    #     print(set(data.performance_monitor.int_err_bitmask))
-    # batt = data.batteries.get(0)
-    # if batt:
-    #     print(len(batt.timeUS))
-    #     print(batt.volt[0])
-    #     print(min(batt.timeUS))
-    #     print(max(batt.timeUS))
-    #     print(batt.state_health)
-
-
-#     print(data.firmware_info)
-
-#     print(len(data.default_params))
-
-#     print(len(data.current_params))
-
-#     non_default = {
-#         name: value
-#         for name, value in data.current_params.items()
-#         if name in data.default_params and value != data.default_params[name]
-#     }
-#     print(len(non_default))
