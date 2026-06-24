@@ -1,17 +1,17 @@
 """
-Parses an ArduPilot .bin log file, and extracts all the parameters required for analysing the log.
+Parses an ArduPilot .bin log file and extracts a generic.
 
 SPDX-FileCopyrightText: 2024-2026 Amilcar do Carmo Lucas <amilcar.lucas@iav.de>
 
 SPDX-License-Identifier: GPL-3.0-or-later
+
 """
 
 import contextlib
-import logging
 import re
 from typing import Any
 
-from ardupilot_methodic_configurator.log_analysis.backend_log_parsing import parse_log
+from pymavlink import mavutil
 
 PARAM_NAME_REGEX = r"^[A-Z][A-Z_0-9]*$"
 PARAM_NAME_MAX_LEN = 16
@@ -27,516 +27,163 @@ def is_param_name_format_valid(pname: str) -> bool:
     return bool(re.match(PARAM_NAME_REGEX, pname))
 
 
-class BatteryData:  # pylint: disable=too-many-instance-attributes,too-few-public-methods
-    """Stores battery telemetry data extracted from BAT log messages."""
-
-    # BCL will be added later during the Phy Validation
-
-    def __init__(self) -> None:
-        self.time_us: list[int] = []
-        self.volt: list[float] = []
-        self.volt_r: list[float] = []
-        self.curr: list[float] = []
-        self.curr_tot: list[float] = []
-        self.enrg_tot: list[float] = []
-        self.temp: list[float] = []
-        self.res: list[float] = []
-        self.rem_pct: list[float] = []  # stored as float in some firmware versions
-        self.health: list[int] = []
-        self.state_health: list[int] = []
-
-
-class PMData:  # pylint: disable=too-few-public-methods
-    """Stores Flight Controller's CPU performance telemetry data extracted from PM messages."""
-
-    def __init__(self) -> None:
-        self.time_us: list[int] = []
-        self.load: list[int] = []
-        self.mem: list[int] = []
-        self.loop_rate: list[int] = []
-        self.int_err_bitmask: list[int] = []
-        self.long_loops: list[int] = []
-
-
-class IMUData:  # pylint: disable=too-many-instance-attributes,too-few-public-methods
+def open_log(logfile: str) -> mavutil.mavfile:
     """
-    Stores Inertial Measurement Unit data extracted from IMU messages.
-
-    Note:
-        GyrX,Y,Z are in rad/s.
-
-    """
-
-    def __init__(self) -> None:
-        self.time_us: list[int] = []
-        self.gyr_x: list[float] = []
-        self.gyr_y: list[float] = []
-        self.gyr_z: list[float] = []
-        self.acc_x: list[float] = []
-        self.acc_y: list[float] = []
-        self.acc_z: list[float] = []
-        self.err_gyro: list[int] = []
-        self.err_acc: list[int] = []
-        self.temp: list[float] = []
-        self.gyro_hlt: list[int] = []
-        self.acc_hlt: list[int] = []
-        self.gyro_rate: list[int] = []
-        self.acc_rate: list[int] = []
-
-
-class VibeData:  # pylint: disable=too-few-public-methods
-    """Stores Processed Vibration Information data extracted from VIBE messages."""
-
-    def __init__(self) -> None:
-        self.time_us: list[int] = []
-        self.vibe_x: list[float] = []
-        self.vibe_y: list[float] = []
-        self.vibe_z: list[float] = []
-        self.clip: list[int] = []
-
-
-class GPSData:  # pylint: disable=too-many-instance-attributes,too-few-public-methods
-    """
-    Stores GPS/GNSS data extracted from GPS messages.
-
-    Note:
-        GCrs and Yaw are in degrees, unlike GyrX,Y,Z. Have to convert before any operation.
-
-    """
-
-    def __init__(self) -> None:
-        self.time_us: list[int] = []
-        self.status: list[int] = []
-        self.num_sats: list[int] = []
-        self.hor_dop: list[float] = []
-        self.lat: list[float] = []
-        self.lng: list[float] = []
-        self.alt: list[float] = []
-        self.spd: list[float] = []
-        self.gcrs: list[float] = []
-        self.vz: list[float] = []
-        self.yaw: list[float] = []
-        self.in_use: list[int] = []  # Boolean value
-        # GMS/GWk not captured; TimeUS covers rate for analysis needs
-
-
-class ERRMsg:  # pylint: disable=too-few-public-methods
-    """Stores subsystem error events extracted from ERR messages."""
-
-    # A log might not contain the ERR field
-    def __init__(self) -> None:
-        self.time_us: list[int] = []
-        self.sub_sys: list[int] = []
-        self.err_code: list[int] = []
-
-
-class ModeInfo:  # pylint: disable=too-few-public-methods
-    """Stores flight mode transition events extracted from MODE messages."""
-
-    def __init__(self) -> None:
-        self.time_us: list[int] = []
-        self.mode_num: list[int] = []
-        self.rsn: list[int] = []  # reason for mode change
-
-
-class ARMStat:  # pylint: disable=too-few-public-methods
-    """Stores arming and disarming events extracted from ARM messages."""
-
-    def __init__(self) -> None:
-        self.time_us: list[int] = []
-        self.arm_state: list[int] = []
-        self.arm_chks: list[int] = []
-        self.forced: list[bool] = []
-        self.method: list[int] = []
-
-
-class LogData:  # pylint: disable=too-many-instance-attributes,too-few-public-methods
-    """Contains all data extracted from an ArduPilot .bin log."""
-
-    def __init__(self) -> None:
-        self.messages: dict[str, int] = {}
-        self.default_params: dict[str, float] = {}
-        self.current_params: dict[str, float] = {}
-        self.firmware_info: tuple[str, int, int, int] | None = None
-        self.frame_type: int | None = None
-        # There could be multiple batteries in the vehicle, so create a separate dict for them.
-        self.batteries: dict[int, BatteryData] = {}
-        self.performance_monitor = PMData()
-        # There could be multiple IMU sensors in the vehicle, so create a separate dict for them.
-        self.imu_data: dict[int, IMUData] = {}
-        # There could be multiple VIBE instances, so create a separate dict for them.
-        self.vibe_data: dict[int, VibeData] = {}
-        # There could be multiple GPS modules in the vehicle, so create a separate dict for them.
-        self.gps_data: dict[int, GPSData] = {}
-        self.err_data = ERRMsg()
-        self.arm_info = ARMStat()
-        self.mode_info = ModeInfo()
-
-
-def extract_log(logfile: str) -> LogData:  # pylint: disable=too-many-branches
-    """
-    Open the log file, scan every message, and return the LogData.
+    Open an ArduPilot log file.
 
     Args:
-        logfile: The path to an ArduPilot .bin log file.
+        logfile: Path to a .bin log.
 
     Returns:
-        A populated LogData object containing parameters, firmware info,
-        message counts, and frame type.
+        pymavlink log object.
+
+    """
+    try:
+        mlog = mavutil.mavlink_connection(logfile)
+    except Exception as e:
+        msg = f"Error opening logfile {logfile}: {e!s}"
+        raise OSError(msg) from e
+
+    return mlog  # pyright: ignore[reportReturnType]
+
+
+def close_log(mlog: mavutil.mavfile) -> None:
+    """Close a log file."""
+    with contextlib.suppress(OSError):
+        mlog.close()
+
+
+def parse_log(logfile: str) -> Any:  # noqa: ANN401
+    """Yield decoded DataFlash messages one at a time."""
+    mlog = open_log(logfile)
+
+    try:
+        while True:
+            msg = mlog.recv_match()
+
+            if msg is None:
+                break
+
+            yield msg
+
+    finally:
+        close_log(mlog)
+
+
+class LogData:
+    """
+    Generic log representation.
+
+    format:
+        Message definitions discovered from FMT/FMTU/UNIT/MULT
+
+    raw_msg:
+        Decoded messages grouped by type
+
+    msg_count:
+        Count of messages by type
+    """
+
+    def __init__(self) -> None:
+        self.format: dict[str, Any] = {}
+
+        self.raw_msg: dict[str, list[dict[str, Any]]] = {}
+
+        self.msg_count: dict[str, int] = {}
+
+
+def extract_log(logfile: str) -> LogData:
+    """
+    Parse a complete ArduPilot .bin file.
+
+    Returns:
+        Populated LogData object.
 
     """
     log_data = LogData()
-    message_counts: dict[str, int] = {}
-    firmware_from_ver: tuple[str, int, int, int] | None = None
-    firmware_from_msg: tuple[str, int, int, int] | None = None
 
-    for msg in parse_log(logfile):
-        msg_type = msg.get_type()
-        message_counts[msg_type] = message_counts.get(msg_type, 0) + 1
+    mlog = open_log(logfile)
 
-        # Extract PARM messages and store them, also is used in extract_param_defaults.py
-        if msg_type == "PARM":
-            process_param(msg, log_data)
+    try:
+        while True:
+            msg = mlog.recv_match()
 
-        # Extract the Version with Vehicle_type, Major, Minor and Patch.
-        elif msg_type == "VER":
-            firmware_from_ver = process_ver(msg)
+            if msg is None:
+                break
 
-        # Fallback to MSG if version is not available.
-        elif msg_type == "MSG":
-            firmware_from_msg = process_msg_version_fallback(msg, firmware_from_msg)
+            msg_type = msg.get_type()
 
-        # Extract the BAT messages and store them in BatteryData
-        elif msg_type == "BAT":
-            process_bat(msg, log_data)
+            log_data.msg_count[msg_type] = log_data.msg_count.get(msg_type, 0) + 1
 
-        # Extract the PM messages and store them in PMData
-        elif msg_type == "PM":
-            process_performance(msg, log_data)
+            log_data.raw_msg.setdefault(
+                msg_type,
+                [],
+            ).append(msg.to_dict())
 
-        # Extract IMU messages and store them in IMUData
-        elif msg_type == "IMU":
-            process_imu(msg, log_data)
+        for fmt in mlog.formats.values():
+            log_data.format[fmt.name] = {
+                "name": fmt.name,
+                "msg_type": fmt.type,
+                "length": fmt.len,
+                "format": fmt.format,
+                "columns": list(fmt.columns),
+                "units": list(fmt.units),
+                "msg_mults": list(fmt.msg_mults),
+                "msg_types": list(fmt.msg_types),
+            }
 
-        # Extract VIBE messages and store them in VibeData
-        elif msg_type == "VIBE":
-            process_vibe(msg, log_data)
-
-        # Extract GPS messages and store them in GPSData
-        elif msg_type == "GPS":
-            process_gps(msg, log_data)
-
-        # Extract ERR message and store them in ERRData
-        elif msg_type == "ERR":
-            process_err(msg, log_data)
-
-        # Extract ARM messages and store them in ARMStat
-        elif msg_type == "ARM":
-            process_arm_stat(msg, log_data)
-
-        # Extract MODE messages and store them in Mode
-        elif msg_type == "MODE":
-            process_mode(msg, log_data)
-
-    if firmware_from_ver is not None:
-        log_data.firmware_info = firmware_from_ver
-    else:
-        log_data.firmware_info = firmware_from_msg
-
-    process_frame_type(log_data)
-    log_data.messages = message_counts
+    finally:
+        close_log(mlog)
 
     return log_data
 
 
-def process_bat(msg: Any, log_data: LogData) -> None:  # noqa: ANN401
-    """
-    Extract battery telemetry from a BAT DataFlash log entry.
-
-    Args:
-        msg: A BAT log entry object parsed from an ArduPilot .bin file
-             (returned by mavutil.mavfile.recv_match()).
-        log_data: The LogData instance to write battery data into.
-
-    """
-    # If there are multiple battery instances store them separately
-    bat_inst = int(msg.Inst)
-    if bat_inst not in log_data.batteries:
-        log_data.batteries[bat_inst] = BatteryData()
-    battery = log_data.batteries[bat_inst]
-
-    battery.time_us.append(int(msg.TimeUS))
-    battery.volt.append(float(msg.Volt))
-    battery.volt_r.append(float(msg.VoltR))
-    battery.curr.append(float(msg.Curr))
-    battery.curr_tot.append(float(msg.CurrTot))
-    battery.enrg_tot.append(float(msg.EnrgTot))
-    battery.temp.append(float(msg.Temp))
-    battery.res.append(float(msg.Res))
-    # RemPct is stored as float in some firmware versions; preserve precision
-    battery.rem_pct.append(float(msg.RemPct))
-    # H (health) and SH (state health) may be absent in older firmware; default to 0
-    battery.health.append(int(getattr(msg, "H", 0)))
-    battery.state_health.append(int(getattr(msg, "SH", 0)))
-
-
-def process_performance(msg: Any, log_data: LogData) -> None:  # noqa: ANN401
-    """
-    Extract performance telemetry from a PM DataFlash log entry.
-
-    Args:
-        msg: A PM log entry object parsed from an ArduPilot .bin file
-             (returned by mavutil.mavfile.recv_match()).
-        log_data: The LogData instance to write performance data into.
-
-    """
-    pm = log_data.performance_monitor
-
-    pm.time_us.append(int(msg.TimeUS))
-    pm.load.append(int(msg.Load))
-    pm.mem.append(int(msg.Mem))
-    pm.loop_rate.append(int(msg.LR))
-    # InE renamed from IntE between firmware 4.5.4 and 4.7.0. # codespell:ignore
-    pm.int_err_bitmask.append(int(getattr(msg, "InE", getattr(msg, "IntE", 0))))  # codespell:ignore
-    pm.long_loops.append(int(msg.NLon))
-
-
-def process_imu(msg: Any, log_data: LogData) -> None:  # noqa: ANN401
-    """
-    Extract inertial Data from an IMU DataFlash log entry.
-
-    Args:
-        msg: An IMU log entry object parsed from an ArduPilot .bin file
-             (returned by mavutil.mavfile.recv_match()).
-        log_data: The LogData instance to write IMU data into.
-
-    """
-    # If there are multiple IMU sensors
-    imu_inst = int(msg.I)
-    if imu_inst not in log_data.imu_data:
-        log_data.imu_data[imu_inst] = IMUData()
-    imu = log_data.imu_data[imu_inst]
-
-    imu.time_us.append(int(msg.TimeUS))
-    imu.gyr_x.append(float(msg.GyrX))
-    imu.gyr_y.append(float(msg.GyrY))
-    imu.gyr_z.append(float(msg.GyrZ))
-    imu.acc_x.append(float(msg.AccX))
-    imu.acc_y.append(float(msg.AccY))
-    imu.acc_z.append(float(msg.AccZ))
-    imu.err_gyro.append(int(msg.EG))
-    imu.err_acc.append(int(msg.EA))
-    imu.temp.append(float(msg.T))
-    imu.gyro_hlt.append(int(getattr(msg, "GH", 0)))
-    imu.acc_hlt.append(int(getattr(msg, "AH", 0)))
-    imu.gyro_rate.append(int(msg.GHz))
-    imu.acc_rate.append(int(msg.AHz))
-
-
-def process_vibe(msg: Any, log_data: LogData) -> None:  # noqa: ANN401
-    """
-    Extract VIBE Data from an IMU DataFlash log entry.
-
-    Args:
-        msg: An VIBE log entry object parsed from an ArduPilot .bin file
-             (returned by mavutil.mavfile.recv_match()).
-        log_data: The LogData instance to write VIBE data into.
-
-    """
-    # If there are multiple instances of IMU
-    vibe_inst = int(msg.IMU)
-    if vibe_inst not in log_data.vibe_data:
-        log_data.vibe_data[vibe_inst] = VibeData()
-    vibe = log_data.vibe_data[vibe_inst]
-
-    vibe.time_us.append(int(msg.TimeUS))
-    vibe.vibe_x.append(float(msg.VibeX))
-    vibe.vibe_y.append(float(msg.VibeY))
-    vibe.vibe_z.append(float(msg.VibeZ))
-    vibe.clip.append(int(msg.Clip))
-
-
-def process_gps(msg: Any, log_data: LogData) -> None:  # noqa: ANN401
-    """
-    Extract GPS/GNSS telemetry from a GPS DataFlash log entry.
-
-    Args:
-        msg: A GPS log entry object parsed from an ArduPilot .bin file
-             (returned by mavutil.mavfile.recv_match()).
-        log_data: The LogData instance to write GPS data into.
-
-    """
-    gps_inst = int(msg.I)
-    if gps_inst not in log_data.gps_data:
-        log_data.gps_data[gps_inst] = GPSData()
-    gps = log_data.gps_data[gps_inst]
-
-    gps.time_us.append(int(msg.TimeUS))
-    gps.status.append(int(msg.Status))
-    gps.num_sats.append(int(msg.NSats))
-    gps.hor_dop.append(float(msg.HDop))
-    gps.lat.append(float(msg.Lat))
-    gps.lng.append(float(msg.Lng))
-    gps.alt.append(float(msg.Alt))
-    gps.spd.append(float(msg.Spd))
-    gps.gcrs.append(float(msg.GCrs))
-    gps.vz.append(float(msg.VZ))
-    gps.yaw.append(float(msg.Yaw))
-    gps.in_use.append(int(msg.U))
-
-
-def process_err(msg: Any, log_data: LogData) -> None:  # noqa: ANN401
-    """
-    Extract subsystem error data from an ERR DataFlash log entry.
-
-    Args:
-        msg: An ERR log entry object parsed from an ArduPilot .bin file
-             (returned by mavutil.mavfile.recv_match()).
-        log_data: The LogData instance to write error data into.
-
-    """
-    err = log_data.err_data
-
-    err.time_us.append(int(msg.TimeUS))
-    err.sub_sys.append(int(msg.Subsys))
-    err.err_code.append(int(msg.ECode))
-
-
-def process_arm_stat(msg: Any, log_data: LogData) -> None:  # noqa: ANN401
-    """
-    Extract arming status from an ARM DataFlash log entry.
-
-    Args:
-        msg: An ARM log entry object parsed from an ArduPilot .bin file
-             (returned by mavutil.mavfile.recv_match()).
-        log_data: The LogData instance to write arming data into.
-
-    """
-    arm = log_data.arm_info
-
-    arm.time_us.append(int(msg.TimeUS))
-    arm.arm_state.append(int(msg.ArmState))
-    arm.arm_chks.append(int(msg.ArmChecks))
-    arm.forced.append(bool(msg.Forced))
-    arm.method.append(int(msg.Method))
-
-
-def process_mode(msg: Any, log_data: LogData) -> None:  # noqa: ANN401
-    """
-    Extract flight mode transition data from a MODE DataFlash log entry.
-
-    Args:
-        msg: A MODE log entry object parsed from an ArduPilot .bin file
-             (returned by mavutil.mavfile.recv_match()).
-        log_data: The LogData instance to write mode data into.
-
-    """
-    mode = log_data.mode_info
-
-    mode.time_us.append(int(msg.TimeUS))
-    mode.mode_num.append(int(msg.ModeNum))
-    mode.rsn.append(int(msg.Rsn))
-
-
-def process_param(msg: Any, log_data: LogData) -> None:  # noqa: ANN401
-    """
-    Validate and store a single PARM log entry into log_data's parameter dicts.
-
-    Each of default_params and current_params is populated independently from the
-    first PARM occurrence that carries a non-None value for that field.  Entries
-    with invalid or overly long names are skipped with a warning.  Once both
-    dicts contain a value for a given name, further occurrences are ignored.
-
-    Args:
-      msg: A PARM log entry object parsed from an ArduPilot .bin file
-           (returned by mavutil.mavfile.recv_match()).
-      log_data: The LogData instance to write param values into.
-
-    """
-    pname = str(msg.Name)
-    if is_param_name_too_long(pname):
-        logging.warning("Too long parameter name %s", pname)
-        return
-    if not is_param_name_format_valid(pname):
-        logging.warning("Invalid parameter name %s", pname)
-        return
-    already_has_default = pname in log_data.default_params
-    already_has_current = pname in log_data.current_params
-    if already_has_default and already_has_current:
-        return
-    if not already_has_default and msg.Default is not None:
-        log_data.default_params[pname] = float(msg.Default)
-    if not already_has_current and msg.Value is not None:
-        log_data.current_params[pname] = float(msg.Value)
-
-
-def process_ver(msg: Any) -> tuple[str, int, int, int] | None:  # noqa: ANN401
-    """
-    Extract firmware version from a VER DataFlash log entry.
-
-    Args:
-      msg: A VER log entry object parsed from an ArduPilot .bin file
-           (returned by mavutil.mavfile.recv_match()).
-
-    Returns:
-      A tuple of (vehicle_type, major, minor, patch), e.g. ("ArduCopter", 4, 6, 3),
-      or None if any version field is missing or vehicle_type cannot be determined.
-
-    """
-    fws = str(msg.FWS)  # e.g. "ArduCopter V4.6.3"
-    parts = fws.split(maxsplit=1)
-    vehicle_type = parts[0] if parts else ""
-    if not vehicle_type:
-        return None
-    maj, mini, pat = msg.Maj, msg.Min, msg.Pat
-    if maj is None or mini is None or pat is None:
-        return None
-
-    return (vehicle_type, int(maj), int(mini), int(pat))
-
-
 def process_msg_version_fallback(
-    msg: Any,  # noqa: ANN401
+msg: Any,  # noqa: ANN401
     firmware_from_msg: tuple[str, int, int, int] | None,
 ) -> tuple[str, int, int, int] | None:
-    """
-    Extract firmware version from a MSG DataFlash log entry.
-
-    Falls back to scanning MSG messages until one with a parseable "Vx.y" version
-    is found (e.g. "ArduCopter V4.6.3 (hash)").
-
-    Args:
-      msg: A MSG log entry object parsed from an ArduPilot .bin file
-           (returned by mavutil.mavfile.recv_match()).
-      firmware_from_msg: A previously found result from a MSG entry, or None.
-
-    Returns:
-      The existing result unchanged if already found, a newly parsed tuple
-      of (vehicle_type, major, minor, patch) if parseable, or None otherwise.
-
-    """
+    """Extract firmware version from MSG raw_msg."""
     if firmware_from_msg is not None:
         return firmware_from_msg
+
     parts = str(msg.Message).split()
+
     if len(parts) >= 2 and parts[1].startswith("V"):
-        version_parts = parts[1][1:].split(".")  # Remove "V" prefix, split by "."
+        version_parts = parts[1][1:].split(".")
+
         if len(version_parts) >= 2:
             with contextlib.suppress(ValueError):
                 patch_val = int(version_parts[2]) if len(version_parts) >= 3 else 0
-                return (parts[0], int(version_parts[0]), int(version_parts[1]), patch_val)
+
+                return (
+                    parts[0],
+                    int(version_parts[0]),
+                    int(version_parts[1]),
+                    patch_val,
+                )
+
     return None
 
 
-def process_frame_type(log_data: LogData) -> None:
-    """
-    Extract the Frame Type from the FRAME_TYPE parameter.
+def process_ver(msg: Any) -> tuple[str, int, int, int] | None:  # noqa: ANN401
+    """Extract firmware version from VER raw_msg."""
+    fws = str(msg.FWS)
 
-    Args:
-        log_data: The LogData instance whose current_params are read from.
+    parts = fws.split(maxsplit=1)
 
-    """
-    frame_type_val = log_data.current_params.get("FRAME_TYPE")
-    if frame_type_val is not None:
-        log_data.frame_type = int(frame_type_val)
-    else:
-        logging.debug("FRAME_TYPE parameter not found in log; frame_type remains None")
+    vehicle_type = parts[0] if parts else ""
+
+    if not vehicle_type:
+        return None
+
+    maj, mini, pat = msg.Maj, msg.Min, msg.Pat
+
+    if maj is None or mini is None or pat is None:
+        return None
+
+    return (
+        vehicle_type,
+        int(maj),
+        int(mini),
+        int(pat),
+    )
