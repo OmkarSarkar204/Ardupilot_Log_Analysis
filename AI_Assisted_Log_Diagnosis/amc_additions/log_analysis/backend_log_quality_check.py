@@ -1,87 +1,152 @@
+"""
+ArduPilot log quality checker.
+
+Validates that the messages required by each analysis plugin, and configuration are present,
+and that logged record matches its FMT schema.
+
+SPDX-FileCopyrightText: 2024-2026 Amilcar do Carmo Lucas <amilcar.lucas@iav.de>
+
+SPDX-License-Identifier: GPL-3.0-or-later
+"""
+
 from dataclasses import dataclass, field
-from ardupilot_methodic_configurator.log_analysis.backend_log_extraction import LogData
+from json import JSONDecodeError
+from json import load as json_load
+from logging import error as logging_error
+from os import path as os_path
+from typing import Any
+
+from ardupilot_methodic_configurator.log_analysis.backend_log_extraction import LogData, MessageSchema
+
+
+def load_analysis_plugins() -> dict[str, Any]:
+    """Load the analysis plugin from JSON."""
+    plugin_file = os_path.join(
+        os_path.dirname(os_path.abspath(__file__)),
+        "analysis_plugins.json",
+    )
+    try:
+        with open(plugin_file, encoding="utf-8") as file:
+            return json_load(file)
+    except FileNotFoundError:
+        logging_error("Analysis plugins '%s' not found", plugin_file)
+    except JSONDecodeError as e:
+        logging_error("Error in analysis plugins '%s': %s", plugin_file, e)
+    return {}
+
+
+ANALYSIS_PLUGINS = load_analysis_plugins()
+
 
 @dataclass
-class LogQuality:
-    """Quality assessment of a single ArduPilot .bin log file."""
+class MessageValidation:
+    """Validation result for a single message type and its schema."""
 
-    missing: list[str] = field(default_factory=list)
-
-    vehicle_type: str | None = None
-    firmware_version: tuple[int, int, int] | None = None
-    frame_type: int | None = None
-    flight_duration_s: float | None = None
-
-    has_params: bool
-    has_battery: bool
-    has_imu: bool
-    has_vibe: bool
-    has_gps: bool
-    has_pm: bool
-    has_att: bool
-    has_rate: bool
-    has_rcou: bool
-    has_ekf: bool
-    has_esc: bool
-    has_fft: bool
+    valid: bool
+    issues: list[str] = field(default_factory=list)
 
 
+@dataclass
+class PluginValidationResult:
+    """Validation result for one analysis plugin (analysis_plugins.json)."""
 
-def check_log_quality(log_data: LogData) -> LogQuality:
-    """
-    Assess the quality of an ArduPilot .bin log for analysis suitability.
-
-    Args:
-        log_data: A populated LogData object from extract_log().
-
-    Returns:
-        A LogQuality object of what data is present and what
-        analysis is possible.
-
-    """
-    retchk = LogQuality()
-    vehicle_type = None
-    firmware_version = None
-    if log_data.firmware_info is not None:
-        retchk.vehicle_type = log_data.firmware_info[0]
-        retchk.firmware_version = log_data.firmware_info[1:]
-
-    frame_type = int(log_data.frame_type) if log_data.frame_type is not None else None
-
-    # Flight duration from PM timestamps. 1e6 converts microsecond to second
-    if len(log_data.performance_monitor.time_us) >= 2:
-        retchk.flight_duration_s = (log_data.performance_monitor.time_us[-1] - log_data.performance_monitor.time_us[0]) / 1e6
-    else:
-        retchk.flight_duration_s = None
-
-    retchk.has_params = len(log_data.default_params) > 0
-    retchk.has_battery = len(log_data.batteries) > 0
-    retchk.has_imu = len(log_data.imu_data) > 0
-    retchk.has_vibe = len(log_data.vibe_data) > 0
-    retchk.has_gps = len(log_data.gps_data) > 0
-    retchk.has_pm = len(log_data.performance_monitor.time_us) > 0
-    retchk.has_att = "ATT" in log_data.messages
-    retchk.has_rate = "RATE" in log_data.messages
-    retchk.has_rcou = "RCOU" in log_data.messages
-    retchk.has_esc = "ESC" in log_data.messages
-    retchk.has_ekf = "XKF1" in log_data.messages
-    retchk.has_fft = "ISBH" in log_data.messages and "ISBD" in log_data.messages
+    plugin: str
+    name: str
+    valid: bool
+    message_results: dict[str, MessageValidation]
 
 
-    presence_checks = {
-      "Parameters": retchk.has_params,
-      "Battery": retchk.has_battery,
-      "IMU": retchk.has_imu,
-      "Vibration": retchk.has_vibe,
-      "GPS": retchk.has_gps,
-      "Processor Load": retchk.has_pm,
-      "ATT": retchk.has_att,
-      "RATE": retchk.has_rate,
-      "Motor Outputs": retchk.has_rcou,
-      "ESC Telemetry": retchk.has_esc,
-      "EKF": retchk.has_ekf,
-      "FFT": retchk.has_fft,
-    }
+class LogQualityChecker:
+    """Checks whether a log is suitable for each analysis plugin."""
 
-    retchk.missing = [checks for checks, present in presence_checks.items() if not present]
+    def validate_fmt_schema(self, schema: MessageSchema, records: list[dict]) -> MessageValidation:
+        """
+        Validate one message schema.
 
+        Args:
+            schema: Schema extracted from the FMT messages.
+            records: Decoded records for this message type.
+
+        Returns:
+            MessageValidation
+
+        """
+        # Store the issues iteratively
+        issues: list[str] = []
+
+        if not schema.fields:
+            issues.append("Missing field definitions")
+        if not schema.format:
+            issues.append("Missing format string")
+        if schema.length <= 0:
+            issues.append("Invalid message length")
+        if schema.units and len(schema.units) != len(schema.fields):
+            issues.append("Unit count mismatch")
+        if schema.multipliers and len(schema.multipliers) != len(schema.fields):
+            issues.append("Multiplier count mismatch")
+
+        if not records:
+            issues.append(f"{schema.name} has no logging data")
+
+        else:
+            record = records[0]
+            actual_fields = [field for field in record.keys() if field != "mavpackettype"]  # noqa: SIM118
+            expected_fields = list(schema.fields)
+            if expected_fields != actual_fields:
+                issues.append(f"Field mismatch. Expected {expected_fields}, got {actual_fields}")
+
+        return MessageValidation(
+            valid=not issues,
+            issues=issues,
+        )
+
+    def validate_fmt_plugins(self, log_data: LogData) -> list[PluginValidationResult]:
+        """
+        Validate every analysis plugin.
+
+        Args:
+            log_data: Parsed log.
+
+        Returns:
+            List of plugin validation results.
+
+        """
+        results: list[PluginValidationResult] = []
+
+        for plugin_name, plugin in ANALYSIS_PLUGINS.items():
+            plugin_valid = True
+            message_results: dict[str, MessageValidation] = {}
+
+            for message_name in plugin["required_messages"]:
+                schema = log_data.schemas.get(message_name)
+
+                if schema is None:
+                    plugin_valid = False
+                    message_results[message_name] = MessageValidation(
+                        valid=False,
+                        issues=["Schema not found"],
+                    )
+                    continue
+
+                records = log_data.raw_messages.get(message_name, [])
+
+                validation = self.validate_fmt_schema(
+                    schema=schema,
+                    records=records,
+                )
+
+                if not validation.valid:
+                    plugin_valid = False
+
+                message_results[message_name] = validation
+
+            results.append(
+                PluginValidationResult(
+                    plugin=plugin_name,
+                    name=plugin["name"],
+                    valid=plugin_valid,
+                    message_results=message_results,
+                )
+            )
+
+        return results
