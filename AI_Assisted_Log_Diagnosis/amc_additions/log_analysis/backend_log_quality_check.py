@@ -1,8 +1,8 @@
 """
 ArduPilot log quality checker.
 
-Validates that the messages required by each analysis plugin, and configuration are present,
-and that logged record matches its FMT schema.
+Validates that the messages and params required by the Methodic Configurator configuration
+steps are present, also checks if a specific analysis can be performed and that logged records match their FMT schema.
 
 SPDX-FileCopyrightText: 2024-2026 Amilcar do Carmo Lucas <amilcar.lucas@iav.de>
 
@@ -19,23 +19,25 @@ from typing import Any
 from ardupilot_methodic_configurator.log_analysis.backend_log_extraction import LogData, MessageSchema
 
 
-def load_analysis_plugins() -> dict[str, Any]:
-    """Load the analysis plugin from JSON."""
-    plugin_file = os_path.join(
-        os_path.dirname(os_path.abspath(__file__)),
-        "analysis_plugins.json",
+def load_configuration_steps() -> dict[str, Any]:
+    """Load the Methodic Configurator configuration steps."""
+    config_file = os_path.join(
+        os_path.dirname(os_path.dirname(os_path.abspath(__file__))),
+        "configuration_steps_ArduCopter.json",
     )
+
     try:
-        with open(plugin_file, encoding="utf-8") as file:
+        with open(config_file, encoding="utf-8") as file:
             return json_load(file)
     except FileNotFoundError:
-        logging_error("Analysis plugins '%s' not found", plugin_file)
+        logging_error("Configuration file '%s' not found", config_file)
     except JSONDecodeError as e:
-        logging_error("Error in analysis plugins '%s': %s", plugin_file, e)
+        logging_error("Error in configuration file '%s': %s", config_file, e)
+
     return {}
 
 
-ANALYSIS_PLUGINS = load_analysis_plugins()
+CONFIGURATION_STEPS = load_configuration_steps()
 
 
 @dataclass
@@ -47,17 +49,17 @@ class MessageValidation:
 
 
 @dataclass
-class PluginValidationResult:
-    """Validation result for one analysis plugin (analysis_plugins.json)."""
+class StepValidationResult:
+    """Validation result for configuration step."""
 
-    plugin: str
+    step: str
     name: str
     valid: bool
     message_results: dict[str, MessageValidation]
 
 
 class LogQualityChecker:
-    """Checks whether a log is suitable for each analysis plugin."""
+    """Checks whether a log contains the required messages for each configuration step."""
 
     def validate_fmt_schema(self, schema: MessageSchema, records: list[dict]) -> MessageValidation:
         """
@@ -71,7 +73,6 @@ class LogQualityChecker:
             MessageValidation
 
         """
-        # Store the issues iteratively
         issues: list[str] = []
 
         if not schema.fields:
@@ -87,7 +88,6 @@ class LogQualityChecker:
 
         if not records:
             issues.append(f"{schema.name} has no logging data")
-
         else:
             record = records[0]
             actual_fields = [field for field in record.keys() if field != "mavpackettype"]  # noqa: SIM118
@@ -100,32 +100,42 @@ class LogQualityChecker:
             issues=issues,
         )
 
-    def validate_fmt_plugins(self, log_data: LogData) -> list[PluginValidationResult]:
+    def validate_configuration_steps(self, log_data: LogData) -> list[StepValidationResult]:
         """
-        Validate every analysis plugin.
+        Validate the messages required by each configuration step.
 
         Args:
             log_data: Parsed log.
 
         Returns:
-            List of plugin validation results.
+            List of validation results.
 
         """
-        results: list[PluginValidationResult] = []
+        results: list[StepValidationResult] = []
 
-        for plugin_name, plugin in ANALYSIS_PLUGINS.items():
-            plugin_valid = True
+        for step_name, step in CONFIGURATION_STEPS["steps"].items():
+            related_messages = step.get("related_bin_messages")
+            if not related_messages:
+                continue
+
+            step_valid = True
             message_results: dict[str, MessageValidation] = {}
 
-            for message_name in plugin["required_messages"]:
+            for message_name, message_info in related_messages.items():
+                required = message_info.get("required", False)
+
                 schema = log_data.schemas.get(message_name)
 
                 if schema is None:
-                    plugin_valid = False
-                    message_results[message_name] = MessageValidation(
+                    validation = MessageValidation(
                         valid=False,
                         issues=["Schema not found"],
                     )
+
+                    if required:
+                        step_valid = False
+
+                    message_results[message_name] = validation
                     continue
 
                 records = log_data.raw_messages.get(message_name, [])
@@ -135,16 +145,16 @@ class LogQualityChecker:
                     records=records,
                 )
 
-                if not validation.valid:
-                    plugin_valid = False
+                if required and not validation.valid:
+                    step_valid = False
 
                 message_results[message_name] = validation
 
             results.append(
-                PluginValidationResult(
-                    plugin=plugin_name,
-                    name=plugin["name"],
-                    valid=plugin_valid,
+                StepValidationResult(
+                    step=step_name,
+                    name=step.get("blog_text", step_name),
+                    valid=step_valid,
                     message_results=message_results,
                 )
             )

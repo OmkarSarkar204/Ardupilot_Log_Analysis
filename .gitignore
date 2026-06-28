@@ -11,7 +11,6 @@ venv/
 # logs and datasets
 *.BIN
 *.bin
-*.json
 
 # python cache
 __pycache__/
