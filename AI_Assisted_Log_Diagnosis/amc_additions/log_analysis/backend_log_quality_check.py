@@ -2,7 +2,7 @@
 ArduPilot log quality checker.
 
 Validates that the messages and params required by the Methodic Configurator configuration
-steps are present, also checks if a specific analysis can be performed and that logged records match their FMT schema.
+steps are present, also checks if a specific analysis can be performed and the logged records match their FMT schema.
 
 SPDX-FileCopyrightText: 2024-2026 Amilcar do Carmo Lucas <amilcar.lucas@iav.de>
 
@@ -20,7 +20,7 @@ from ardupilot_methodic_configurator.log_analysis.backend_log_extraction import 
 
 
 def load_configuration_steps() -> dict[str, Any]:
-    """Load the Methodic Configurator configuration steps."""
+    """Load the Methodic Configurator configuration steps from 'configuration_steps_ArduCopter.json'."""
     config_file = os_path.join(
         os_path.dirname(os_path.dirname(os_path.abspath(__file__))),
         "configuration_steps_ArduCopter.json",
@@ -75,6 +75,7 @@ class LogQualityChecker:
         """
         issues: list[str] = []
 
+        # To be removed if these checks become stale, as pymavlink should handle these
         if not schema.fields:
             issues.append("Missing field definitions")
         if not schema.format:
@@ -102,7 +103,7 @@ class LogQualityChecker:
 
     def validate_configuration_steps(self, log_data: LogData) -> list[StepValidationResult]:
         """
-        Validate the messages required by each configuration step.
+        Validate the messages required by the configuration steps.
 
         Args:
             log_data: Parsed log.
