@@ -144,9 +144,9 @@ def read_messages(mlog: mavutil.mavfile, log_data: LogData) -> None:
     while True:
         try:
             msg = mlog.recv_match()
-        except Exception as e:  # pylint: disable=broad-exception-caught
+        except Exception as e:
             logging.exception("Failed while parsing log: %s", e)
-            break
+            raise
 
         if msg is None:
             break
@@ -221,12 +221,19 @@ def process_ver(msg: Any) -> tuple[str, int, int, int] | None:  # noqa: ANN401
       or None if any version field is missing or vehicle_type cannot be determined.
 
     """
-    fws = str(msg.FWS)  # e.g. "ArduCopter V4.6.3"
+    fws = getattr(msg, "FWS", None)
+    if not isinstance(fws, (str, bytes)):
+        return None
+    fws = str(fws).strip()  # e.g. "ArduCopter V4.6.3"
+    if not fws:
+        return None
     parts = fws.split(maxsplit=1)
     vehicle_type = parts[0] if parts else ""
     if not vehicle_type:
         return None
-    maj, mini, pat = msg.Maj, msg.Min, msg.Pat
+    maj = getattr(msg, "Maj", None)
+    mini = getattr(msg, "Min", None)
+    pat = getattr(msg, "Pat", None)
     if maj is None or mini is None or pat is None:
         return None
 
@@ -255,7 +262,10 @@ def process_msg_version_fallback(
     """
     if firmware_from_msg is not None:
         return firmware_from_msg
-    parts = str(msg.Message).split()
+    message = getattr(msg, "Message", "")
+    if not isinstance(message, (str, bytes)):
+        return None
+    parts = str(message).split()
     if len(parts) >= 2 and parts[1].startswith("V"):
         version_parts = parts[1][1:].split(".")  # Remove "V" prefix, split by "."
         if len(version_parts) >= 2:
@@ -263,3 +273,14 @@ def process_msg_version_fallback(
                 patch_val = int(version_parts[2]) if len(version_parts) >= 3 else 0
                 return (parts[0], int(version_parts[0]), int(version_parts[1]), patch_val)
     return None
+
+
+def extract_parameters(log_data: LogData) -> dict[str, float]:
+    """Param exatraction for the data model."""
+    params = {}
+    for record in log_data.raw_messages.get("PARM", []):
+        name = record.get("Name")
+        value = record.get("Value")
+        if name is not None and value is not None:
+            params[name] = float(value)
+    return params
