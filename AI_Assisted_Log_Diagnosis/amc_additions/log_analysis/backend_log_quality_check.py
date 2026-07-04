@@ -17,6 +17,7 @@ from os import path as os_path
 from typing import Any
 
 from ardupilot_methodic_configurator.log_analysis.backend_log_extraction import LogData, MessageSchema
+from ardupilot_methodic_configurator.log_analysis.data_model_quality_battery import LogBatteryQuality
 
 
 def load_configuration_steps() -> dict[str, Any]:
@@ -90,11 +91,12 @@ class LogQualityChecker:
         if not records:
             issues.append(f"{schema.name} has no logging data")
         else:
-            record = records[0]
-            actual_fields = [field for field in record.keys() if field != "mavpackettype"]  # noqa: SIM118
             expected_fields = list(schema.fields)
-            if expected_fields != actual_fields:
-                issues.append(f"Field mismatch. Expected {expected_fields}, got {actual_fields}")
+            for index, record in enumerate(records):
+                actual_fields = [field for field in record.keys() if field != "mavpackettype"]  # noqa: SIM118
+                if expected_fields != actual_fields:
+                    issues.append(f"Field mismatch in record {index}. Expected {expected_fields}, got {actual_fields}")
+                    break
 
         return MessageValidation(
             valid=not issues,
@@ -114,7 +116,11 @@ class LogQualityChecker:
         """
         results: list[StepValidationResult] = []
 
-        for step_name, step in CONFIGURATION_STEPS["steps"].items():
+        steps = CONFIGURATION_STEPS.get("steps")
+        if not isinstance(steps, dict):
+            return results
+
+        for step_name, step in steps.items():
             related_messages = step.get("related_bin_messages")
             if not related_messages:
                 continue
@@ -129,8 +135,8 @@ class LogQualityChecker:
 
                 if schema is None:
                     validation = MessageValidation(
-                        valid=False,
-                        issues=["Schema not found"],
+                        valid=not required,
+                        issues=[] if not required else ["Schema not found"],
                     )
 
                     if required:
@@ -161,3 +167,7 @@ class LogQualityChecker:
             )
 
         return results
+
+    def activate_plugin_models(self, log_data: LogData, parameters: dict[str, float] | None = None) -> LogBatteryQuality:
+        """Run each quality module plugin and coolect the result."""
+        results = dict[str, LogBatteryQuality] = {}

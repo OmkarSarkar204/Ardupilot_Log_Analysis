@@ -24,6 +24,18 @@ PARAM_NAME_REGEX = r"^[A-Z][A-Z_0-9]*$"
 PARAM_NAME_MAX_LEN = 16
 
 
+@dataclass
+class LogQualityResult:
+    """Base quality result structure for the data_models_quality_*."""
+
+    available: bool
+    state: str
+    reason: str
+    config_step: str
+    issues: list[str]
+
+
+
 def is_param_name_too_long(pname: str) -> bool:
     """Return True if the param name exceeds PARAM_NAME_MAX_LEN."""
     return len(pname) > PARAM_NAME_MAX_LEN
@@ -144,9 +156,9 @@ def read_messages(mlog: mavutil.mavfile, log_data: LogData) -> None:
     while True:
         try:
             msg = mlog.recv_match()
-        except Exception as e:  # pylint: disable=broad-exception-caught
+        except Exception as e:
             logging.exception("Failed while parsing log: %s", e)
-            break
+            raise
 
         if msg is None:
             break
@@ -221,12 +233,22 @@ def process_ver(msg: Any) -> tuple[str, int, int, int] | None:  # noqa: ANN401
       or None if any version field is missing or vehicle_type cannot be determined.
 
     """
-    fws = str(msg.FWS)  # e.g. "ArduCopter V4.6.3"
+    fws = getattr(msg, "FWS", None)
+    if isinstance(fws, bytes):
+        fws = fws.decode("utf-8", errors="replace")
+    elif not isinstance(fws, str):
+        return None
+
+    fws = fws.strip()  # e.g. "ArduCopter V4.6.3"
+    if not fws:
+        return None
     parts = fws.split(maxsplit=1)
     vehicle_type = parts[0] if parts else ""
     if not vehicle_type:
         return None
-    maj, mini, pat = msg.Maj, msg.Min, msg.Pat
+    maj = getattr(msg, "Maj", None)
+    mini = getattr(msg, "Min", None)
+    pat = getattr(msg, "Pat", None)
     if maj is None or mini is None or pat is None:
         return None
 
@@ -255,7 +277,13 @@ def process_msg_version_fallback(
     """
     if firmware_from_msg is not None:
         return firmware_from_msg
-    parts = str(msg.Message).split()
+    message = getattr(msg, "Message", "")
+    if isinstance(message, bytes):
+        message = message.decode("utf-8", errors="replace")
+    elif not isinstance(message, str):
+        return None
+
+    parts = message.split()
     if len(parts) >= 2 and parts[1].startswith("V"):
         version_parts = parts[1][1:].split(".")  # Remove "V" prefix, split by "."
         if len(version_parts) >= 2:
@@ -263,6 +291,7 @@ def process_msg_version_fallback(
                 patch_val = int(version_parts[2]) if len(version_parts) >= 3 else 0
                 return (parts[0], int(version_parts[0]), int(version_parts[1]), patch_val)
     return None
+
 
 def extract_parameters(log_data: LogData) -> dict[str, float]:
     """Param exatraction for the data model."""
