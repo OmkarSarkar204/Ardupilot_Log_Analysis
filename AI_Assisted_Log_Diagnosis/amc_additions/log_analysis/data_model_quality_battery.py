@@ -21,7 +21,7 @@ class BatteryLogQualityModel:
     # Battery Monitor logging is bit 9 (2^9) in LOG_BITMASK
     LOG_BIT = 512
 
-    def __init__(self, log_data: LogData, parameters: dict[str, float] | None = None) -> None:
+    def __init__(self, log_data: LogData, parameters: dict[str, float] | None = None, vehicle_components=None) -> None:
         """
         Initialise the battery quality model.
 
@@ -32,6 +32,7 @@ class BatteryLogQualityModel:
         """
         self.log_data = log_data
         self.parameters = parameters or {}
+        self.vehicle_components = vehicle_components or {}
 
     def extract(self, records: Any, field: str) -> list:  # noqa: ANN401
         """Extract non empty values from a BAT field."""
@@ -70,7 +71,7 @@ class BatteryLogQualityModel:
             return self._diagnose_absence()
 
         issues: list[str] = []
-        for check in (self.check_voltage, self.check_curr_total, self.check_current):
+        for check in (self.check_voltage, self.check_curr_total, self.check_current, self.check_efficiency):
             issues += check(records)
         issues += self.check_parameters()
         return self.build_result(issues)
@@ -80,11 +81,11 @@ class BatteryLogQualityModel:
         bitmask = self.parameters.get("LOG_BITMASK")
         monitor = self.parameters.get("BATT_MONITOR")
         if bitmask is not None and (int(bitmask) & self.LOG_BIT) == 0:
-          reason = _("Battery logging is disabled in LOG_BITMASK")
-          issues = [_("Enable battery logging (LOG_BITMASK bit) to record BAT data")]
+            reason = _("Battery logging is disabled in LOG_BITMASK")
+            issues = [_("Enable battery logging (LOG_BITMASK bit) to record BAT data")]
         elif monitor == 0:
-          reason = _("Battery logging enabled but BATT_MONITOR is 0 (monitor disabled)")
-          issues = [_("Set BATT_MONITOR to enable the battery monitor")]
+            reason = _("Battery logging enabled but BATT_MONITOR is 0 (monitor disabled)")
+            issues = [_("Set BATT_MONITOR to enable the battery monitor")]
         else:
           reason = _("Battery logging enabled but no data, monitor may not be configured properly")
           issues = [_("No BAT messages found")]
@@ -178,9 +179,31 @@ class BatteryLogQualityModel:
         if monitor is None:
             return issues
 
+
         if self.parameters.get("BATT_LOW_VOLT") == 0:
             issues.append(_("Battery low-voltage failsafe threshold disabled"))
         if self.parameters.get("BATT_CRT_VOLT") == 0:
             issues.append(_("Battery critical-voltage failsafe threshold disabled"))
 
+        return issues
+
+    def check_efficiency(self, records: Any) -> list[str]:  # noqa: ANN401
+        issues = []
+
+        frame = self.vehicle_components.get("Frame", {})
+        specs = frame.get("Specifications", {})
+        tow = specs.get("TOW max Kg", {})
+        if tow is None or tow<=0:
+            return issues
+
+        volts = self.extract(records, "Volt")
+        curr = self.extract(records, "Curr")
+        if not volts or not curr:
+            return issues
+
+        avg_pow = (sum(volts) / len(volts)) * (sum(curr) / len(curr))
+        efficiency = avg_pow/tow
+
+        if efficiency < 200 or efficiency > 500:
+            issues.append(_("Power efficiency out of range, check current vehicle setup"))
         return issues
