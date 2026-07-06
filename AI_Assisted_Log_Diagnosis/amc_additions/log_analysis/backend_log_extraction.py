@@ -12,38 +12,11 @@ SPDX-License-Identifier: GPL-3.0-or-later
 """
 
 import contextlib
-import logging
-import re
 from collections.abc import Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from pymavlink import mavutil
-
-PARAM_NAME_REGEX = r"^[A-Z][A-Z_0-9]*$"
-PARAM_NAME_MAX_LEN = 16
-
-
-@dataclass
-class LogQualityResult:
-    """Base quality result structure for the data_models_quality_*."""
-
-    available: bool
-    state: str
-    reason: str
-    config_step: str
-    issues: list[str]
-
-
-
-def is_param_name_too_long(pname: str) -> bool:
-    """Return True if the param name exceeds PARAM_NAME_MAX_LEN."""
-    return len(pname) > PARAM_NAME_MAX_LEN
-
-
-def is_param_name_format_valid(pname: str) -> bool:
-    """Return True if the parameter name matches the PARAM_NAME_REGEX pattern."""
-    return bool(re.match(PARAM_NAME_REGEX, pname))
 
 
 def open_log(logfile: str) -> mavutil.mavfile:
@@ -59,16 +32,34 @@ def open_log(logfile: str) -> mavutil.mavfile:
     """
     try:
         mlog = mavutil.mavlink_connection(logfile)
-    except Exception as e:
+    except (OSError, ValueError) as e:
         msg = f"Error opening logfile {logfile}: {e!s}"
         raise OSError(msg) from e
-    return mlog  # pyright: ignore[reportReturnType]
+    return mlog  # pyright: ignore[reportReturnType]  # pymavlink stubs include CSVReader which doesn't extend mavfile
 
 
 def close_log(mlog: mavutil.mavfile) -> None:
     """Close an open log connection, ignoring errors if already closed."""
     with contextlib.suppress(OSError):
         mlog.close()
+
+
+def _iter_messages(mlog: mavutil.mavfile) -> Iterator[Any]:
+    """
+    Yield decoded DataFlash messages from an open log connection.
+
+    Args:
+        mlog: An open pymavlink connection.
+
+    Yields:
+        One decoded DataFlash message per iteration.
+
+    """
+    while True:
+        msg = mlog.recv_match()
+        if msg is None:
+            break
+        yield msg
 
 
 def parse_log(logfile: str) -> Iterator[Any]:
@@ -86,11 +77,7 @@ def parse_log(logfile: str) -> Iterator[Any]:
     """
     mlog = open_log(logfile)
     try:
-        while True:
-            msg = mlog.recv_match()
-            if msg is None:
-                break
-            yield msg
+        yield from _iter_messages(mlog)
     finally:
         close_log(mlog)
 
@@ -111,28 +98,37 @@ class MessageSchema:  # pylint: disable=too-many-instance-attributes
     records: int = 0
 
 
-class LogData:  # pylint: disable=too-few-public-methods
+# Cap raw_messages storage to 1 sample per message type to prevent memory exhaustion on large .bin log files
+# Set to 0 to store them all (not recommended for large logs)
+MAX_SAMPLES_PER_TYPE = 1
+"""Maximum number of sample records stored per message type (memory guard)."""
+
+
+@dataclass
+class LogData:
     """
-    Storing the raw messages.
+    Storing parsed log metadata and one sample record per message type.
 
     Attributes:
         schemas: Raw message definitions extracted from FMT/FMTU/UNIT/MULT,
             keyed by message name. Each holds columns, units, multipliers and
             types exactly as pymavlink reports them.
-        raw_messages: Decoded messages grouped by message type name.
-        msg_count: Number of decoded messages for each message type name.
+        raw_messages: Up to MAX_SAMPLES_PER_TYPE decoded records per message type,
+            keyed by type name. Capped to prevent memory exhaustion on large logs.
+        msg_count: Total number of decoded messages for each message type name.
 
     """
 
-    def __init__(self) -> None:
-        self.schemas: dict[str, MessageSchema] = {}
-        self.raw_messages: dict[str, list[dict[str, Any]]] = {}
-        self.msg_count: dict[str, int] = {}
+    schemas: dict[str, MessageSchema] = field(default_factory=dict)
+    raw_messages: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
+    msg_count: dict[str, int] = field(default_factory=dict)
 
 
 def store_message(log_data: LogData, msg_type: str, msg: Any) -> None:  # noqa: ANN401
     """
-    Record one decoded message: increment its count and store its fields.
+    Record one decoded message: increment its count and store a sample of its fields.
+
+    Only up to MAX_SAMPLES_PER_TYPE records are stored per type to cap memory usage.
 
     Args:
         log_data: The LogData instance to update.
@@ -141,7 +137,9 @@ def store_message(log_data: LogData, msg_type: str, msg: Any) -> None:  # noqa: 
 
     """
     log_data.msg_count[msg_type] = log_data.msg_count.get(msg_type, 0) + 1
-    log_data.raw_messages.setdefault(msg_type, []).append(msg.to_dict())
+    bucket = log_data.raw_messages.setdefault(msg_type, [])
+    if MAX_SAMPLES_PER_TYPE == 0 or len(bucket) < MAX_SAMPLES_PER_TYPE:
+        bucket.append(msg.to_dict())
 
 
 def read_messages(mlog: mavutil.mavfile, log_data: LogData) -> None:
@@ -153,16 +151,7 @@ def read_messages(mlog: mavutil.mavfile, log_data: LogData) -> None:
         log_data: The LogData instance to populate.
 
     """
-    while True:
-        try:
-            msg = mlog.recv_match()
-        except Exception as e:
-            logging.exception("Failed while parsing log: %s", e)
-            raise
-
-        if msg is None:
-            break
-
+    for msg in _iter_messages(mlog):
         store_message(log_data, msg.get_type(), msg)
 
 
@@ -185,7 +174,7 @@ def extract_schemas(mlog: mavutil.mavfile, log_data: LogData) -> None:
             format=fmt.format,
             fields=list(fmt.columns),
             units=list(fmt.units) if fmt.units is not None else [],
-            multipliers=list(fmt.msg_mults),
+            multipliers=list(getattr(fmt, "msg_mults", None) or []),
             records=log_data.msg_count.get(fmt.name, 0),
         )
 
@@ -218,87 +207,3 @@ def extract_log(logfile: str) -> LogData:
         close_log(mlog)
 
     return log_data
-
-
-def process_ver(msg: Any) -> tuple[str, int, int, int] | None:  # noqa: ANN401
-    """
-    Extract firmware version from a VER DataFlash log entry.
-
-    Args:
-      msg: A VER log entry object parsed from an ArduPilot .bin file
-           (returned by mavutil.mavfile.recv_match()).
-
-    Returns:
-      A tuple of (vehicle_type, major, minor, patch), e.g. ("ArduCopter", 4, 6, 3),
-      or None if any version field is missing or vehicle_type cannot be determined.
-
-    """
-    fws = getattr(msg, "FWS", None)
-    if isinstance(fws, bytes):
-        fws = fws.decode("utf-8", errors="replace")
-    elif not isinstance(fws, str):
-        return None
-
-    fws = fws.strip()  # e.g. "ArduCopter V4.6.3"
-    if not fws:
-        return None
-    parts = fws.split(maxsplit=1)
-    vehicle_type = parts[0] if parts else ""
-    if not vehicle_type:
-        return None
-    maj = getattr(msg, "Maj", None)
-    mini = getattr(msg, "Min", None)
-    pat = getattr(msg, "Pat", None)
-    if maj is None or mini is None or pat is None:
-        return None
-
-    return (vehicle_type, int(maj), int(mini), int(pat))
-
-
-def process_msg_version_fallback(
-    msg: Any,  # noqa: ANN401
-    firmware_from_msg: tuple[str, int, int, int] | None,
-) -> tuple[str, int, int, int] | None:
-    """
-    Extract firmware version from a MSG DataFlash log entry.
-
-    Falls back to scanning MSG messages until one with a parseable "Vx.y" version
-    is found (e.g. "ArduCopter V4.6.3 (hash)").
-
-    Args:
-      msg: A MSG log entry object parsed from an ArduPilot .bin file
-           (returned by mavutil.mavfile.recv_match()).
-      firmware_from_msg: A previously found result from a MSG entry, or None.
-
-    Returns:
-      The existing result unchanged if already found, a newly parsed tuple
-      of (vehicle_type, major, minor, patch) if parseable, or None otherwise.
-
-    """
-    if firmware_from_msg is not None:
-        return firmware_from_msg
-    message = getattr(msg, "Message", "")
-    if isinstance(message, bytes):
-        message = message.decode("utf-8", errors="replace")
-    elif not isinstance(message, str):
-        return None
-
-    parts = message.split()
-    if len(parts) >= 2 and parts[1].startswith("V"):
-        version_parts = parts[1][1:].split(".")  # Remove "V" prefix, split by "."
-        if len(version_parts) >= 2:
-            with contextlib.suppress(ValueError):
-                patch_val = int(version_parts[2]) if len(version_parts) >= 3 else 0
-                return (parts[0], int(version_parts[0]), int(version_parts[1]), patch_val)
-    return None
-
-
-def extract_parameters(log_data: LogData) -> dict[str, float]:
-    """Param exatraction for the data model."""
-    params = {}
-    for record in log_data.raw_messages.get("PARM", []):
-        name = record.get("Name")
-        value = record.get("Value")
-        if name is not None and value is not None:
-            params[name] = float(value)
-    return params
