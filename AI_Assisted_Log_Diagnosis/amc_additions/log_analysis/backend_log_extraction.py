@@ -16,7 +16,7 @@ from collections.abc import Iterator
 from dataclasses import dataclass, field
 import os
 from typing import Any
-
+from logging import error as logging_error
 import numpy as np
 from pymavlink import mavutil
 
@@ -147,8 +147,8 @@ class LogData:
     _raw_messages: dict[str, np.ndarray] = field(default_factory=dict, repr=False)
     msg_count: dict[str, int] = field(default_factory=dict)
 
-    duration_sec: int = 0
-    file_size_on_disk: int = 0
+    flight_duration_sec: float = 0.0
+    log_file_size: int = 0
 
     def get_message_columns(self, message_name: str) -> np.ndarray | None:
         """Return the structured numpy array for one message type, if present."""
@@ -395,27 +395,56 @@ def extract_schemas(mlog: mavutil.mavfile, log_data: LogData) -> None:
 
 def extract_log_metadata(log_data: LogData, logfile: str) -> None:
     """Extract generic metadata from a parsed log."""
-    log_data.file_size_on_disk = os.path.getsize(logfile)
+    log_data.log_file_size = os.path.getsize(logfile)
+    log_data.flight_duration_sec = compute_flight_duration(log_data)
 
-    start = None
-    end = None
+def compute_flight_duration(log_data: LogData) -> float | None:
+    """
+    Compute the total flight duration in seconds.
 
-    for message_name, schema in log_data.schemas.items():
-        if "TimeUS" not in schema.fields:
-            continue
-        timeus = log_data.get_field(message_name, "TimeUS", scaled=False)
-        if timeus.size == 0:
-            continue
+    Args:
+        log_data: parsed log.
 
-        first = int(timeus[0])
-        last = int(timeus[-1])
+    Returns:
+        Time in seconds or None.
 
-        if start is None or first < start:
-            start = first
-        if end is None or last > end:
-            end = last
-    if start is not None and end is not None:
-        log_data.duration_sec = (end - start) / 1e6 # 1_000_000
+    """
+    message_info = (
+        ("ARM", "ArmState", 1, 0),
+        ("EV", "Id", 10, 11),
+    )
+
+    try:
+        for message_name, state_field, start_value, stop_value in message_info:
+            records = log_data.get_message_columns(message_name)
+            if records is None or records.size == 0:
+                continue
+
+            timeus = log_data.get_field(message_name, "TimeUS", scaled=False)
+            states = log_data.get_field(message_name, state_field)
+            total_time = 0
+            start_time = None
+
+            # Many logs have multiple arm/disarm events, calculate them separately and sum up
+            for time_dur, state in zip(timeus, states, strict=True):
+                if state == start_value and start_time is None:
+                    start_time = time_dur
+                elif state == stop_value and start_time is not None:
+                    total_time += time_dur - start_time
+                    start_time = None
+
+            if start_time is not None:
+                total_time += timeus[-1] - start_time
+
+            if total_time > 0:
+                return total_time / 1e6 # 1_000_000
+
+    except (KeyError, ValueError) as error:
+        logging_error(
+            _("Could not compute flight duration: {error}").format(error=error)
+        )
+
+    return None
 
 
 

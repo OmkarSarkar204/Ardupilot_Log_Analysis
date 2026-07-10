@@ -15,13 +15,14 @@ from json import load as json_load
 from logging import error as logging_error
 from pathlib import Path
 from typing import Any
-
 import numpy as np
 
 from ardupilot_methodic_configurator import _
 from ardupilot_methodic_configurator.log_analysis.backend_log_extraction import LogData, MessageSchema
 
-TIME_GAP_FACTOR = 10
+_MAX_HEALTHY_AVG_CPU = 80.0      # percent
+_MAX_HEALTHY_PEAK_CPU = 95.0     # percent
+_MIN_HEALTHY_FREE_MEM = 10_000   # bytes
 
 def load_configuration_steps(vehicle_type: str = "ArduCopter") -> dict[str, Any] | None:
     """
@@ -61,33 +62,105 @@ class StepValidationResult:
     valid: bool
     message_results: dict[str, MessageValidation]
 
-def validate_time_data(log_data: LogData) -> dict[str, MessageValidation]:
-    results: dict[str, MessageValidation] = {}
+@dataclass
+class PMStatus:
+    """Performance Monitor summary."""
 
-    for msg_time in log_data.schemas:
-        records = log_data.get_message_columns(msg_time)
-        if records is None or records.size < 2:
-            continue
-        if "TimeUS" not in (records.dtype.names or ()):
-            continue
+    average_cpu_load: float
+    peak_cpu_load: float
+    scheduler_long_loops: int
+    max_loop_time_us: int
+    free_memory_bytes: int
+    healthy: bool | None
 
-        timeus = log_data.get_field(msg_time, "TimeUS")
+def get_pm_status(log_data: LogData) -> PMStatus | None:
+    """
+    Return a summary of the Performance Monitor (PM) message.
 
-        intervals = np.diff(timeus)
-        issues: list[str] = []
+    Returns:
+        PMStatus if the PM message exists, otherwise None.
 
-        # Check abnormal gaps
-        median = np.median(intervals)
-        if median > 0:
-            bad_gaps = intervals > TIME_GAP_FACTOR*median
+    """
+    columns = log_data.get_message_columns("PM")
+    if columns is None or columns.size == 0:
+        return None
 
-            if bad_gaps.any():
-                count = int(bad_gaps.sum())
-                issues.append(_("{msg} has {n} abnormal logging gaps").format(msg=msg_time, n=count))
+    available = set(columns.dtype.names or ())
 
-        if issues:
-            results[msg_time] = MessageValidation(valid=False, issues=issues)
-    return results
+    load = log_data.get_field("PM", "Load", scaled=False) if "Load" in available else None
+    nlon = log_data.get_field("PM", "NLon", scaled=False) if "NLon" in available else None
+    max_t = log_data.get_field("PM", "MaxT", scaled=False) if "MaxT" in available else None
+    mem = log_data.get_field("PM", "Mem", scaled=False) if "Mem" in available else None
+
+    # compute values into locals first
+    avg_cpu_load = float(load.mean()) / 10.0 if load is not None else 0.0
+    peak_cpu_load = float(load.max()) / 10.0 if load is not None else 0.0
+    long_loops = int(nlon.sum()) if nlon is not None else 0
+    max_loop_time = int(max_t.max()) if max_t is not None else 0
+    free_memory = int(mem.min()) if mem is not None else 0
+
+    if load is not None and mem is not None:
+        healthy = (
+            avg_cpu_load < _MAX_HEALTHY_AVG_CPU
+            and peak_cpu_load < _MAX_HEALTHY_PEAK_CPU
+            and free_memory > _MIN_HEALTHY_FREE_MEM
+        )
+    else:
+        healthy = None
+
+    return PMStatus(
+        average_cpu_load=avg_cpu_load,
+        peak_cpu_load=peak_cpu_load,
+        scheduler_long_loops=long_loops,
+        max_loop_time_us=max_loop_time,
+        free_memory_bytes=free_memory,
+        healthy=healthy,
+    )
+
+def check_cpu_performance_message(log_data: LogData) -> MessageValidation:
+    """
+    Validate the PM (Performance Monitor) message for internal errors and scheduler health.
+
+    Only checks documented error signals (internal error mask, error count,
+    long loops). Fields vary by firmware version.
+    """
+    columns = log_data.get_message_columns("PM")
+    if columns is None or columns.size == 0:
+        return MessageValidation(valid=False, issues=[_("PM message not logged")])
+
+    available = set(columns.dtype.names or ())
+    issues: list[str] = []
+
+    # Internal error mask
+    if "InE" in available:
+        ine = log_data.get_field("PM", "InE", scaled=False)
+        if ine.max() > 0:
+            issues.append(_("Internal firmware errors were detected (InE)"))
+
+    # Internal error count
+    if "ErC" in available:
+        erc = log_data.get_field("PM", "ErC", scaled=False)
+        count = int(erc.max())
+        if count > 0:
+            issues.append(_("Internal error count: {count}").format(count=count))
+
+    # Internal error line number
+    if "ErrL" in available:
+        errl = log_data.get_field("PM", "ErrL", scaled=False)
+        if errl.max() > 0:
+            issues.append(_("An internal error line was recorded (ErrL)"))
+
+    # Long loops
+    if "NLon" in available:
+        nlon = log_data.get_field("PM", "NLon", scaled=False)
+        count = int(nlon.sum())
+
+        if count > 0:
+            issues.append(_("Detected {count} scheduler long loops").format(count=count))
+
+    return MessageValidation(valid=not issues, issues=issues)
+
+
 
 def validate_fmt_schema(schema: MessageSchema, columns: np.ndarray | None) -> MessageValidation:
     """
