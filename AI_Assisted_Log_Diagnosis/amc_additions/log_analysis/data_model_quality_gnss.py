@@ -91,4 +91,4 @@ class GPSLogQualityModel(BaseLogQualityAnalysisModel):
             issues.append(_("GPS type not configured (set to None)"))
         return issues
 
-# TODO: need to remove the hardcoing like batt and gps in both the data models and also remove the step number for the json file :(
+# TODO: need to remove the hardcoing like batt and gps in both the data models and also remove the step number for the json file :(.
