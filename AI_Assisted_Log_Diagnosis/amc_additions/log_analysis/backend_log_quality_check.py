@@ -20,9 +20,9 @@ import numpy as np
 from ardupilot_methodic_configurator import _
 from ardupilot_methodic_configurator.log_analysis.backend_log_extraction import LogData, MessageSchema
 
-_MAX_HEALTHY_AVG_CPU = 80.0      # percent
-_MAX_HEALTHY_PEAK_CPU = 95.0     # percent
-_MIN_HEALTHY_FREE_MEM = 10_000   # bytes
+_MAX_HEALTHY_AVG_CPU = 80.0  # percent
+_MAX_HEALTHY_PEAK_CPU = 95.0  # percent
+_MIN_HEALTHY_FREE_MEM = 10_000  # bytes
 
 def load_configuration_steps(vehicle_type: str = "ArduCopter") -> dict[str, Any] | None:
     """
@@ -62,6 +62,7 @@ class StepValidationResult:
     valid: bool
     message_results: dict[str, MessageValidation]
 
+
 @dataclass
 class PMStatus:
     """Performance Monitor summary."""
@@ -72,6 +73,7 @@ class PMStatus:
     max_loop_time_us: int
     free_memory_bytes: int
     healthy: bool | None
+
 
 def get_pm_status(log_data: LogData) -> PMStatus | None:
     """
@@ -87,14 +89,14 @@ def get_pm_status(log_data: LogData) -> PMStatus | None:
 
     available = set(columns.dtype.names or ())
 
-    load = log_data.get_field("PM", "Load", scaled=False) if "Load" in available else None
+    load = log_data.get_field("PM", "Load") if "Load" in available else None
     nlon = log_data.get_field("PM", "NLon", scaled=False) if "NLon" in available else None
     max_t = log_data.get_field("PM", "MaxT", scaled=False) if "MaxT" in available else None
     mem = log_data.get_field("PM", "Mem", scaled=False) if "Mem" in available else None
 
     # compute values into locals first
-    avg_cpu_load = float(load.mean()) / 10.0 if load is not None else 0.0
-    peak_cpu_load = float(load.max()) / 10.0 if load is not None else 0.0
+    avg_cpu_load = float(load.mean()) if load is not None else 0.0
+    peak_cpu_load = float(load.max()) if load is not None else 0.0
     long_loops = int(nlon.sum()) if nlon is not None else 0
     max_loop_time = int(max_t.max()) if max_t is not None else 0
     free_memory = int(mem.min()) if mem is not None else 0
@@ -116,6 +118,7 @@ def get_pm_status(log_data: LogData) -> PMStatus | None:
         free_memory_bytes=free_memory,
         healthy=healthy,
     )
+
 
 def check_cpu_performance_message(log_data: LogData) -> MessageValidation:
     """
@@ -159,7 +162,6 @@ def check_cpu_performance_message(log_data: LogData) -> MessageValidation:
             issues.append(_("Detected {count} scheduler long loops").format(count=count))
 
     return MessageValidation(valid=not issues, issues=issues)
-
 
 
 def validate_fmt_schema(schema: MessageSchema, columns: np.ndarray | None) -> MessageValidation:
