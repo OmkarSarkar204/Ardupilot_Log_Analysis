@@ -15,6 +15,7 @@ from json import load as json_load
 from logging import error as logging_error
 from pathlib import Path
 from typing import Any
+
 import numpy as np
 
 from ardupilot_methodic_configurator import _
@@ -23,6 +24,32 @@ from ardupilot_methodic_configurator.log_analysis.backend_log_extraction import 
 _MAX_HEALTHY_AVG_CPU = 80.0  # percent
 _MAX_HEALTHY_PEAK_CPU = 95.0  # percent
 _MIN_HEALTHY_FREE_MEM = 10_000  # bytes
+
+def find_step_for_message(configuration_steps: dict[str, Any], message_name: str) -> tuple[str, dict[str, Any]] | None:
+    """Find the configuration step whose related_bin_messages documents a given message type."""
+    matches = [
+        step_key for step_key, step in configuration_steps["steps"].items()
+        if message_name in step.get("related_bin_messages", {})
+    ]
+    if len(matches) > 1:
+        msg = f"Message '{message_name}' is documented by multiple steps: {matches}"
+        raise ValueError(msg)
+    if not matches:
+        return None
+    step_key = matches[0]
+    return step_key, configuration_steps["steps"][step_key]["related_bin_messages"]
+
+
+def find_step_for_parameter(configuration_steps: dict[str, Any], param_name: str) -> str | None:
+    """Find the configuration step that sets a given FC parameter (derived_parameters/forced_parameters only)."""
+    matches = [
+        step_key for step_key, step in configuration_steps["steps"].items()
+        if param_name in step.get("derived_parameters", {}) or param_name in step.get("forced_parameters", {})
+    ]
+    if len(matches) > 1:
+        msg = f"Parameter '{param_name}' is set by multiple steps: {matches}"
+        raise ValueError(msg)
+    return matches[0] if matches else None
 
 def load_configuration_steps(vehicle_type: str = "ArduCopter") -> dict[str, Any] | None:
     """

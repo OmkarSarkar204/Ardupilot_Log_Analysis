@@ -1,157 +1,102 @@
-"""
-Data model for battery quality check.
-
-SPDX-FileCopyrightText: 2024-2026 Amilcar do Carmo Lucas <amilcar.lucas@iav.de>
-
-SPDX-License-Identifier: GPL-3.0-or-later
-"""
-
-
 from ardupilot_methodic_configurator import _
-from ardupilot_methodic_configurator.log_analysis.data_model_quality_base import LogQualityResult
-from ardupilot_methodic_configurator.log_analysis.data_model_quality_base import BaseLogQualityAnalysisModel
-
+from ardupilot_methodic_configurator.log_analysis.backend_log_quality_check import find_step_for_message
+from ardupilot_methodic_configurator.log_analysis.data_model_quality_base import (
+    BaseLogQualityAnalysisModel,
+    LogQualityResult,
+    QualityIssue,
+)
 
 
 class BatteryLogQualityModel(BaseLogQualityAnalysisModel):
-    """Checks battery telemetry and configuration quality."""
-
-    NAME = "Battery"
-    CONFIG_STEP = "10_battery_monitor.param"
-    # Battery Monitor logging is bit 9 (2^9) in LOG_BITMASK
     LOG_BIT = 512
 
     def check(self) -> LogQualityResult:
-        """
-        Run all battery quality checks.
-
-        Returns:
-            Battery quality class instance.
-
-        """
         records = self.log_data.get_message_columns("BAT")
-
         if records is None or len(records) == 0:
             return self._diagnose_absence()
 
-        issues: list[str] = []
+        issues: list[QualityIssue] = []
         for check in (self.check_voltage, self.check_curr_total, self.check_current, self.check_efficiency):
             issues += check()
         issues += self.check_parameters()
-        return self.build_result(issues)
+
+        resolved = find_step_for_message(self.configuration_steps, "BAT")
+        name = resolved[1]["BAT"]["name"] if resolved else "Battery"
+        return self.build_result(issues, name)
 
     def _diagnose_absence(self) -> LogQualityResult:
-        """Diagnose why BAT data is absent using LOG_BITMASK."""
         bitmask = self.parameters.get("LOG_BITMASK")
         monitor = self.parameters.get("BATT_MONITOR")
+
+        resolved = find_step_for_message(self.configuration_steps, "BAT")
+        step, related = resolved if resolved else ("", {})
+        name = related.get("BAT", {}).get("name", "Battery")
+
         if bitmask is not None and (int(bitmask) & self.LOG_BIT) == 0:
             reason = _("Battery logging is disabled in LOG_BITMASK")
-            issues = [_("Enable battery logging (LOG_BITMASK bit) to record BAT data")]
+            issues = [QualityIssue(_("Enable battery logging (LOG_BITMASK bit) to record BAT data"), step)]
         elif monitor == 0:
             reason = _("Battery logging enabled but BATT_MONITOR is 0 (monitor disabled)")
-            issues = [_("Set BATT_MONITOR to enable the battery monitor")]
+            issues = [QualityIssue(_("Set BATT_MONITOR to enable the battery monitor"), self.step_for_parameter("BATT_MONITOR"))]
         else:
-          reason = _("Battery logging enabled but no data, monitor may not be configured properly")
-          issues = [_("No BAT messages found")]
+            reason = _("Battery logging enabled but no data, monitor may not be configured properly")
+            issues = [QualityIssue(_("No BAT messages found"), step)]
 
+        return LogQualityResult(available=False, state="warning", reason=reason, issues=issues, name=name)
 
-        return LogQualityResult(
-            available=False,
-            state="warning",
-            reason=reason,
-            config_step=self.CONFIG_STEP,
-            issues=issues,
-        )
-
-    def check_voltage(self) -> list[str]:
-        """
-        Validate logged battery voltage values.
-
-        Checks for missing voltage, zero voltage and parameter based voltage defects.
-
-        Returns:
-            List of detected issues.
-
-        """
-        issues: list[str] = []
+    def check_voltage(self) -> list[QualityIssue]:
+        issues: list[QualityIssue] = []
         volts = self.log_data.get_field("BAT", "Volt")
 
         if len(volts) == 0:
-            issues.append(_("Voltage values missing from BAT records"))
+            issues.append(QualityIssue(_("Voltage values missing from BAT records")))
             return issues
 
         if volts.max() == 0:
-            issues.append(_("Voltage is zero throughout, sensor may not be reading"))
+            issues.append(QualityIssue(_("Voltage is zero throughout, sensor may not be reading")))
 
         v_max = self.parameters.get("MOT_BAT_VOLT_MAX")
         v_min = self.parameters.get("MOT_BAT_VOLT_MIN")
         if v_max is not None and v_max > 0 and volts.max() >= 1.2 * v_max:
-            issues.append(_("Voltage spike, or MOT_BAT_VOLT_MAX misconfigured"))
+            issues.append(QualityIssue(_("Voltage spike, or MOT_BAT_VOLT_MAX misconfigured"), self.step_for_parameter("MOT_BAT_VOLT_MAX")))
         if v_min is not None and v_min > 0 and volts.min() <= 0.8 * v_min:
-            issues.append(_("Voltage sag, or MOT_BAT_VOLT_MIN misconfigured"))
+            issues.append(QualityIssue(_("Voltage sag, or MOT_BAT_VOLT_MIN misconfigured"), self.step_for_parameter("MOT_BAT_VOLT_MIN")))
 
         return issues
 
-    def check_current(self) -> list[str]:
-        """
-        Validate logged battery current values.
-
-        Args:
-            records: BAT message records.
-
-        Returns:
-            List of detected issues.
-
-        """
-        issues: list[str] = []
+    def check_current(self) -> list[QualityIssue]:
+        issues: list[QualityIssue] = []
         current = self.log_data.get_field("BAT", "Curr")
         if len(current) == 0:
-            issues.append(_("Current values missing from BAT records"))
+            issues.append(QualityIssue(_("Current values missing from BAT records")))
         return issues
 
-    def check_curr_total(self) -> list[str]:
-        """
-        Validate accumulated battery consumption values.
-
-        Returns:
-            List of detected issues.
-
-        """
-        issues: list[str] = []
+    def check_curr_total(self) -> list[QualityIssue]:
+        issues: list[QualityIssue] = []
         cur_tot = self.log_data.get_field("BAT", "CurrTot")
         if len(cur_tot) == 0:
-            issues.append(_("CurrTot missing from BAT records"))
+            issues.append(QualityIssue(_("CurrTot missing from BAT records")))
         return issues
 
-    def check_parameters(self) -> list[str]:
-        """
-        Validate battery-related parameter configuration.
-
-        Returns:
-            List of detected parameter issues.
-
-        """
-        issues: list[str] = []
+    def check_parameters(self) -> list[QualityIssue]:
+        issues: list[QualityIssue] = []
         monitor = self.parameters.get("BATT_MONITOR")
-
         if monitor is None:
             return issues
 
-
         if self.parameters.get("BATT_LOW_VOLT") == 0:
-            issues.append(_("Battery low-voltage failsafe threshold disabled"))
+            issues.append(QualityIssue(_("Battery low-voltage failsafe threshold disabled"), self.step_for_parameter("BATT_LOW_VOLT")))
         if self.parameters.get("BATT_CRT_VOLT") == 0:
-            issues.append(_("Battery critical-voltage failsafe threshold disabled"))
+            issues.append(QualityIssue(_("Battery critical-voltage failsafe threshold disabled"), self.step_for_parameter("BATT_CRT_VOLT")))
 
         return issues
 
-    def check_efficiency(self) -> list[str]:
-        issues = []
-
+    def check_efficiency(self) -> list[QualityIssue]:
+        issues: list[QualityIssue] = []
         frame = self.vehicle_components.get("Frame", {})
         specs = frame.get("Specifications", {})
         tow = specs.get("TOW max Kg", None)
-        if tow is None or tow<=0:
+        if tow is None or tow <= 0:
             return issues
 
         volts = self.log_data.get_field("BAT", "Volt")
@@ -159,9 +104,9 @@ class BatteryLogQualityModel(BaseLogQualityAnalysisModel):
         if len(volts) == 0 or len(curr) == 0:
             return issues
 
-        avg_pow = volts.mean() * curr.mean()
-        efficiency = avg_pow/tow
-
-        if efficiency < 200 or efficiency > 500:
-            issues.append(_("Power efficiency out of range, check current vehicle setup"))
+        efficiency = (volts.mean() * curr.mean()) / tow
+        if efficiency < 200:
+            issues.append(QualityIssue(_("Power efficiency < 200W/Kg. Current is mis calibrated or take off weight is incorrect or the efficiency is really good.")))
+        elif efficiency > 500:
+            issues.append(QualityIssue(_("Power efficiency > 500W/Kg. Current is mis calibrated or take off weight is incorrect or the efficiency is really bad.")))
         return issues

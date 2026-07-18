@@ -13,24 +13,25 @@ from dataclasses import dataclass
 from typing import Any
 
 from ardupilot_methodic_configurator.log_analysis.backend_log_extraction import LogData
-from ardupilot_methodic_configurator.log_analysis.data_model_quality_base import LogQualityResult
-from ardupilot_methodic_configurator.log_analysis.data_model_quality_battery import BatteryLogQualityModel
-from ardupilot_methodic_configurator.log_analysis.data_model_quality_gnss import GPSLogQualityModel
 from ardupilot_methodic_configurator.log_analysis.backend_log_quality_check import (
     PMStatus,
     StepValidationResult,
-    MessageValidation,
     get_pm_status,
+    load_configuration_steps,
     validate_configuration_steps,
 )
+from ardupilot_methodic_configurator.log_analysis.data_model_quality_base import LogQualityResult
+from ardupilot_methodic_configurator.log_analysis.data_model_quality_battery import BatteryLogQualityModel
+from ardupilot_methodic_configurator.log_analysis.data_model_quality_gnss import GPSLogQualityModel
 
 QUALITY_MODELS = [BatteryLogQualityModel, GPSLogQualityModel]
+
 
 @dataclass
 class LogSummary:
     """Summary of a parsed ArduPilot log."""
 
-    flight_duration_sec: float
+    flight_duration_sec: float | None
     file_size_bytes: int
     total_messages: int
     message_types: int
@@ -60,14 +61,15 @@ def analyze_log(
     if vehicle_components is None:
         vehicle_components = {}
 
+    configuration_steps = load_configuration_steps("ArduCopter") or {}
+
     pm_status = get_pm_status(log_data)
 
     quality_results: list[LogQualityResult] = [
-        model(log_data, parameters, vehicle_components).check()
-        for model in QUALITY_MODELS
+        model(log_data, parameters, configuration_steps, vehicle_components).check() for model in QUALITY_MODELS
     ]
 
-    step_results = validate_configuration_steps(log_data, vehicle_type="ArduCopter")
+    step_results = validate_configuration_steps(log_data, configuration_steps, vehicle_type="ArduCopter")
 
     return LogSummary(
         flight_duration_sec=log_data.flight_duration_sec,
