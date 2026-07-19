@@ -7,7 +7,10 @@ SPDX-License-Identifier: GPL-3.0-or-later
 """
 
 from ardupilot_methodic_configurator import _
-from ardupilot_methodic_configurator.log_analysis.backend_log_quality_check import find_step_for_message
+from ardupilot_methodic_configurator.log_analysis.backend_log_quality_check import (
+    find_log_bit_in_apm_file,
+    find_step_for_message,
+)
 from ardupilot_methodic_configurator.log_analysis.data_model_quality_base import (
     BaseLogQualityAnalysisModel,
     LogQualityResult,
@@ -17,9 +20,6 @@ from ardupilot_methodic_configurator.log_analysis.data_model_quality_base import
 
 class GPSLogQualityModel(BaseLogQualityAnalysisModel):
     """Checks GPS/GNSS telemetry and configuration quality."""
-
-    # GPS logging is bit 2 (2^2) in LOG_BITMASK
-    LOG_BIT = 4
 
     def check(self) -> LogQualityResult:
         records = self.log_data.get_message_columns("GPS")
@@ -38,12 +38,13 @@ class GPSLogQualityModel(BaseLogQualityAnalysisModel):
     def _diagnose_absence(self) -> LogQualityResult:
         """Diagnose why GPS data is absent using LOG_BITMASK."""
         bitmask = self.parameters.get("LOG_BITMASK")
+        log_bit = find_log_bit_in_apm_file(self.log_bitmask_doc, "GPS") if self.log_bitmask_doc else None
 
         resolved = find_step_for_message(self.configuration_steps, "GPS")
-        step, related = resolved if resolved else ("", {})
+        step, related = resolved or ("", {})
         name = related.get("GPS", {}).get("name", "GPS")
 
-        if bitmask is not None and (int(bitmask) & self.LOG_BIT) == 0:
+        if log_bit is not None and bitmask is not None and (int(bitmask) & (1 << log_bit)) == 0:
             reason = _("GPS logging is disabled in LOG_BITMASK")
             issues = [QualityIssue(_("Enable GPS logging (LOG_BITMASK bit) to record GPS data"), step)]
         else:

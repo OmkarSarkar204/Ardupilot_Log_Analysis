@@ -14,7 +14,6 @@ from typing import Any
 from ardupilot_methodic_configurator import _
 from ardupilot_methodic_configurator.log_analysis.backend_log_extraction import LogData
 from ardupilot_methodic_configurator.log_analysis.backend_log_quality_check import (
-    find_step_for_message,
     find_step_for_parameter,
 )
 
@@ -41,19 +40,19 @@ class LogQualityResult:
 class BaseLogQualityAnalysisModel:
     """Base class for log analysis models."""
 
-    LOG_BIT = 0
-
     def __init__(
         self,
         log_data: LogData,
         parameters: dict[str, float],
         configuration_steps: dict[str, Any],
+        log_bitmask_doc: str | None,
         vehicle_components: dict[str, Any] | None = None,
     ) -> None:
         self.log_data = log_data
         self.parameters = parameters or {}
         self.vehicle_components = vehicle_components or {}
         self.configuration_steps = configuration_steps
+        self.log_bitmask_doc = log_bitmask_doc
 
     def step_for_parameter(self, param_name: str) -> str:
         return find_step_for_parameter(self.configuration_steps, param_name) or ""
@@ -63,7 +62,8 @@ class BaseLogQualityAnalysisModel:
             available=True,
             state="info" if not issues else "warning",
             reason=_("{name} data present and good for analysis").format(name=name)
-            if not issues else _("{name} data has quality issues").format(name=name),
+            if not issues
+            else _("{name} data has quality issues").format(name=name),
             issues=issues,
             name=name,
         )

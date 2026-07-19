@@ -45,6 +45,7 @@ def analyze_log(
     log_data: LogData,
     parameters: dict[str, float],
     vehicle_components: dict[str, Any] | None = None,
+    log_bitmask_doc: str | None = None,
 ) -> LogSummary:
     """
     Run all log quality analyses and return a summary suitable for the frontend.
@@ -53,6 +54,7 @@ def analyze_log(
         log_data: Parsed log.
         parameters: Vehicle parameters extracted from the log.
         vehicle_components: Optional vehicle component database.
+        log_bitmask_doc: Raw "Bitmask" field string from apm.pdef.xml
 
     Returns:
         Complete log analysis summary.
@@ -66,7 +68,8 @@ def analyze_log(
     pm_status = get_pm_status(log_data)
 
     quality_results: list[LogQualityResult] = [
-        model(log_data, parameters, configuration_steps, vehicle_components).check() for model in QUALITY_MODELS
+        model(log_data, parameters, configuration_steps, log_bitmask_doc, vehicle_components).check()
+        for model in QUALITY_MODELS
     ]
 
     step_results = validate_configuration_steps(log_data, configuration_steps, vehicle_type="ArduCopter")

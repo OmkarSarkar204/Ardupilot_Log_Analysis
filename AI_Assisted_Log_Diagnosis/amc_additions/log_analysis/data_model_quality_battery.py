@@ -1,5 +1,16 @@
+"""
+Data model for battery quality check.
+
+SPDX-FileCopyrightText: 2024-2026 Amilcar do Carmo Lucas <amilcar.lucas@iav.de>
+
+SPDX-License-Identifier: GPL-3.0-or-later
+"""
+
 from ardupilot_methodic_configurator import _
-from ardupilot_methodic_configurator.log_analysis.backend_log_quality_check import find_step_for_message
+from ardupilot_methodic_configurator.log_analysis.backend_log_quality_check import (
+    find_log_bit_in_apm_file,
+    find_step_for_message,
+)
 from ardupilot_methodic_configurator.log_analysis.data_model_quality_base import (
     BaseLogQualityAnalysisModel,
     LogQualityResult,
@@ -8,7 +19,7 @@ from ardupilot_methodic_configurator.log_analysis.data_model_quality_base import
 
 
 class BatteryLogQualityModel(BaseLogQualityAnalysisModel):
-    LOG_BIT = 512
+    """Checks battery telemetry and configuration quality."""
 
     def check(self) -> LogQualityResult:
         records = self.log_data.get_message_columns("BAT")
@@ -27,17 +38,20 @@ class BatteryLogQualityModel(BaseLogQualityAnalysisModel):
     def _diagnose_absence(self) -> LogQualityResult:
         bitmask = self.parameters.get("LOG_BITMASK")
         monitor = self.parameters.get("BATT_MONITOR")
+        log_bit = find_log_bit_in_apm_file(self.log_bitmask_doc, "Battery Monitor") if self.log_bitmask_doc else None
 
         resolved = find_step_for_message(self.configuration_steps, "BAT")
-        step, related = resolved if resolved else ("", {})
+        step, related = resolved or ("", {})
         name = related.get("BAT", {}).get("name", "Battery")
 
-        if bitmask is not None and (int(bitmask) & self.LOG_BIT) == 0:
+        if log_bit is not None and bitmask is not None and (int(bitmask) & (1 << log_bit)) == 0:
             reason = _("Battery logging is disabled in LOG_BITMASK")
             issues = [QualityIssue(_("Enable battery logging (LOG_BITMASK bit) to record BAT data"), step)]
         elif monitor == 0:
             reason = _("Battery logging enabled but BATT_MONITOR is 0 (monitor disabled)")
-            issues = [QualityIssue(_("Set BATT_MONITOR to enable the battery monitor"), self.step_for_parameter("BATT_MONITOR"))]
+            issues = [
+                QualityIssue(_("Set BATT_MONITOR to enable the battery monitor"), self.step_for_parameter("BATT_MONITOR"))
+            ]
         else:
             reason = _("Battery logging enabled but no data, monitor may not be configured properly")
             issues = [QualityIssue(_("No BAT messages found"), step)]
@@ -58,9 +72,15 @@ class BatteryLogQualityModel(BaseLogQualityAnalysisModel):
         v_max = self.parameters.get("MOT_BAT_VOLT_MAX")
         v_min = self.parameters.get("MOT_BAT_VOLT_MIN")
         if v_max is not None and v_max > 0 and volts.max() >= 1.2 * v_max:
-            issues.append(QualityIssue(_("Voltage spike, or MOT_BAT_VOLT_MAX misconfigured"), self.step_for_parameter("MOT_BAT_VOLT_MAX")))
+            issues.append(
+                QualityIssue(
+                    _("Voltage spike, or MOT_BAT_VOLT_MAX misconfigured"), self.step_for_parameter("MOT_BAT_VOLT_MAX")
+                )
+            )
         if v_min is not None and v_min > 0 and volts.min() <= 0.8 * v_min:
-            issues.append(QualityIssue(_("Voltage sag, or MOT_BAT_VOLT_MIN misconfigured"), self.step_for_parameter("MOT_BAT_VOLT_MIN")))
+            issues.append(
+                QualityIssue(_("Voltage sag, or MOT_BAT_VOLT_MIN misconfigured"), self.step_for_parameter("MOT_BAT_VOLT_MIN"))
+            )
 
         return issues
 
@@ -85,9 +105,15 @@ class BatteryLogQualityModel(BaseLogQualityAnalysisModel):
             return issues
 
         if self.parameters.get("BATT_LOW_VOLT") == 0:
-            issues.append(QualityIssue(_("Battery low-voltage failsafe threshold disabled"), self.step_for_parameter("BATT_LOW_VOLT")))
+            issues.append(
+                QualityIssue(_("Battery low-voltage failsafe threshold disabled"), self.step_for_parameter("BATT_LOW_VOLT"))
+            )
         if self.parameters.get("BATT_CRT_VOLT") == 0:
-            issues.append(QualityIssue(_("Battery critical-voltage failsafe threshold disabled"), self.step_for_parameter("BATT_CRT_VOLT")))
+            issues.append(
+                QualityIssue(
+                    _("Battery critical-voltage failsafe threshold disabled"), self.step_for_parameter("BATT_CRT_VOLT")
+                )
+            )
 
         return issues
 
@@ -106,7 +132,21 @@ class BatteryLogQualityModel(BaseLogQualityAnalysisModel):
 
         efficiency = (volts.mean() * curr.mean()) / tow
         if efficiency < 200:
-            issues.append(QualityIssue(_("Power efficiency < 200W/Kg. Current is mis calibrated or take off weight is incorrect or the efficiency is really good.")))
+            issues.append(
+                QualityIssue(
+                    _(
+                        "Power efficiency < 200W/Kg. Current is miscalibrated or take "
+                        "off weight is incorrect or the efficiency is really good."
+                    )
+                )
+            )
         elif efficiency > 500:
-            issues.append(QualityIssue(_("Power efficiency > 500W/Kg. Current is mis calibrated or take off weight is incorrect or the efficiency is really bad.")))
+            issues.append(
+                QualityIssue(
+                    _(
+                        "Power efficiency > 500W/Kg. Current is miscalibrated or take off "
+                        "weight is incorrect or the efficiency is really bad."
+                    )
+                )
+            )
         return issues

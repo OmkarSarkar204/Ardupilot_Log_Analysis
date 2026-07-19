@@ -25,6 +25,7 @@ from ardupilot_methodic_configurator import _
 
 _NO_ID_ASSIGNED = "-"  # ArduPilot's FMTU convention: '-' marks a field with no unit/multiplier ID assigned
 
+
 def open_log(logfile: str) -> mavutil.mavfile:
     """
     Open an ArduPilot .bin log file.
@@ -312,8 +313,7 @@ def _record_message_counts_and_fields(mlog: mavutil.mavfile, log_data: LogData) 
     First pass: count message occurrences and capture each type's FMTU MultIds string.
 
     MultIds maps each field position to a single-character multiplier ID,
-    resolved later against mlog.mult_lookup (itself built by pymavlink from
-    this log's own MULT messages) - no numeric multiplier is invented here.
+    resolved later against mlog.mult_lookup.
     """
     mult_ids_by_type: dict[int, str] = {}
     for msg in _iter_messages(mlog):
@@ -323,7 +323,8 @@ def _record_message_counts_and_fields(mlog: mavutil.mavfile, log_data: LogData) 
             mult_ids_by_type[int(msg.FmtType)] = msg.MultIds
     return mult_ids_by_type
 
-def _resolve_multipliers(fmt: Any, mult_ids: str | None, mult_lookup: dict[str, float]) -> list[float | None]:
+
+def _resolve_multipliers(fmt: Any, mult_ids: str | None, mult_lookup: dict[str, float]) -> list[float | None]:  # noqa: ANN401
     resolved: list[float | None] = []
     for i, fixed_mult in enumerate(fmt.msg_mults):
         if fixed_mult is not None:
@@ -404,6 +405,7 @@ def extract_schemas(mlog: mavutil.mavfile, log_data: LogData, mult_ids_by_type: 
     Args:
         mlog: An open pymavlink connection (fully read).
         log_data: The LogData instance to populate.
+        mult_ids_by_type: Per message type, the MultIds string from that type's FMTU message.
 
     """
     for fmt in mlog.formats.values():
