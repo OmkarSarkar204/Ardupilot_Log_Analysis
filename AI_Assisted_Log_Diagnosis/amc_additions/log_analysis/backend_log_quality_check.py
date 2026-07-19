@@ -19,16 +19,24 @@ from typing import Any
 import numpy as np
 
 from ardupilot_methodic_configurator import _
+from ardupilot_methodic_configurator.annotate_params import (
+    PARAM_DEFINITION_XML_FILE,
+    create_doc_dict,
+    get_xml_data,
+    get_xml_url,
+)
 from ardupilot_methodic_configurator.log_analysis.backend_log_extraction import LogData, MessageSchema
 
 _MAX_HEALTHY_AVG_CPU = 80.0  # percent
 _MAX_HEALTHY_PEAK_CPU = 95.0  # percent
 _MIN_HEALTHY_FREE_MEM = 10_000  # bytes
 
+
 def find_step_for_message(configuration_steps: dict[str, Any], message_name: str) -> tuple[str, dict[str, Any]] | None:
     """Find the configuration step whose related_bin_messages documents a given message type."""
     matches = [
-        step_key for step_key, step in configuration_steps["steps"].items()
+        step_key
+        for step_key, step in configuration_steps["steps"].items()
         if message_name in step.get("related_bin_messages", {})
     ]
     if len(matches) > 1:
@@ -43,13 +51,15 @@ def find_step_for_message(configuration_steps: dict[str, Any], message_name: str
 def find_step_for_parameter(configuration_steps: dict[str, Any], param_name: str) -> str | None:
     """Find the configuration step that sets a given FC parameter (derived_parameters/forced_parameters only)."""
     matches = [
-        step_key for step_key, step in configuration_steps["steps"].items()
+        step_key
+        for step_key, step in configuration_steps["steps"].items()
         if param_name in step.get("derived_parameters", {}) or param_name in step.get("forced_parameters", {})
     ]
     if len(matches) > 1:
         msg = f"Parameter '{param_name}' is set by multiple steps: {matches}"
         raise ValueError(msg)
     return matches[0] if matches else None
+
 
 def load_configuration_steps(vehicle_type: str = "ArduCopter") -> dict[str, Any] | None:
     """
@@ -100,6 +110,52 @@ class PMStatus:
     max_loop_time_us: int
     free_memory_bytes: int
     healthy: bool | None
+
+
+def find_log_bit_in_apm_file(bitmask: str, bit_name: str) -> int | None:
+    """
+    Find the LOG_BITMASK bit number for a named logging category.
+
+    Args:
+        bitmask: The raw "Bitmask" field string from apm.pdef.xml's
+            LOG_BITMASK parameter, e.g. "0:Fast Attitude,1:...,9:Battery Monitor".
+        bit_name: The category name to search for, e.g. "Battery Monitor".
+
+    Returns:
+        The bit if found, otherwise None.
+
+    """
+    entries = bitmask.split(",")
+
+    for entry in entries:
+        code, name = entry.split(":", 1)
+        if name == bit_name:
+            return int(code)
+    return None
+
+
+def load_bitmask_from_apm_file(vehicle_dir: str, vehicle_type: str = "ArduCopter") -> str | None:
+    """
+    Fetch (or use cached if already downloaded) apm.pdef.xml and return LOG_BITMASK's raw Bitmask string.
+
+    Args:
+        vehicle_dir: Directory where apm.pdef.xml is cached, or should be downloaded.
+        vehicle_type: Vehicle type, e.g. "ArduCopter".
+
+    Returns:
+        The raw "Bitmask" field string, or None if the file can't be obtained.
+
+    """
+    xml_url = get_xml_url(vehicle_type, firmware_version="")
+
+    try:
+        xml_root = get_xml_data(xml_url, vehicle_dir, PARAM_DEFINITION_XML_FILE, vehicle_type)
+    except (OSError, SystemExit):
+        return None
+
+    doc = create_doc_dict(xml_root, vehicle_type)
+
+    return doc.get("LOG_BITMASK", {}).get("fields", {}).get("Bitmask")
 
 
 def get_pm_status(log_data: LogData) -> PMStatus | None:
