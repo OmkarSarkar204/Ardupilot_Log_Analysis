@@ -14,6 +14,7 @@ from typing import Any
 from ardupilot_methodic_configurator import _
 from ardupilot_methodic_configurator.log_analysis.backend_log_extraction import LogData
 from ardupilot_methodic_configurator.log_analysis.backend_log_quality_check import (
+    find_step_for_message,
     find_step_for_parameter,
 )
 
@@ -67,3 +68,20 @@ class BaseLogQualityAnalysisModel:
             issues=issues,
             name=name,
         )
+    def resolve_message_step(self, message_name: str, fallback_name: str) -> tuple[str, str]:
+        """
+        Resolve the configuration step and display name for a message this model checks.
+
+        Returns (config_step, name) - config_step is "" if unresolved, name falls
+        back to fallback_name if the message isn't found in configuration_steps.
+        """
+        resolved = find_step_for_message(self.configuration_steps, message_name)
+        if resolved is None:
+            return "", fallback_name
+        step, related = resolved
+        return step, related.get(message_name, {}).get("name", fallback_name)
+
+    def field_available(self, message_name: str, field_name: str) -> bool:
+        """Check whether a field exists in this log's schema for a message type, before reading it."""
+        columns = self.log_data.get_message_columns(message_name)
+        return columns is not None and field_name in (columns.dtype.names or ())

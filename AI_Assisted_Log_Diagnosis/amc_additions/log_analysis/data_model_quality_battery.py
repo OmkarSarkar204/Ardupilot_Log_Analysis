@@ -7,10 +7,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 """
 
 from ardupilot_methodic_configurator import _
-from ardupilot_methodic_configurator.log_analysis.backend_log_quality_check import (
-    find_log_bit_in_apm_file,
-    find_step_for_message,
-)
+from ardupilot_methodic_configurator.log_analysis.backend_log_quality_check import find_log_bit_in_apm_file
 from ardupilot_methodic_configurator.log_analysis.data_model_quality_base import (
     BaseLogQualityAnalysisModel,
     LogQualityResult,
@@ -31,8 +28,7 @@ class BatteryLogQualityModel(BaseLogQualityAnalysisModel):
             issues += check()
         issues += self.check_parameters()
 
-        resolved = find_step_for_message(self.configuration_steps, "BAT")
-        name = resolved[1]["BAT"]["name"] if resolved else "Battery"
+        _, name = self.resolve_message_step("BAT", "Battery")
         return self.build_result(issues, name)
 
     def _diagnose_absence(self) -> LogQualityResult:
@@ -40,9 +36,7 @@ class BatteryLogQualityModel(BaseLogQualityAnalysisModel):
         monitor = self.parameters.get("BATT_MONITOR")
         log_bit = find_log_bit_in_apm_file(self.log_bitmask_doc, "Battery Monitor") if self.log_bitmask_doc else None
 
-        resolved = find_step_for_message(self.configuration_steps, "BAT")
-        step, related = resolved or ("", {})
-        name = related.get("BAT", {}).get("name", "Battery")
+        step, name = self.resolve_message_step("BAT", "Battery")
 
         if log_bit is not None and bitmask is not None and (int(bitmask) & (1 << log_bit)) == 0:
             reason = _("Battery logging is disabled in LOG_BITMASK")
@@ -60,6 +54,11 @@ class BatteryLogQualityModel(BaseLogQualityAnalysisModel):
 
     def check_voltage(self) -> list[QualityIssue]:
         issues: list[QualityIssue] = []
+
+        if not self.field_available("BAT", "Volt"):
+            issues.append(QualityIssue(_("Volt field not present in this firmware's BAT schema")))
+            return issues
+
         volts = self.log_data.get_field("BAT", "Volt")
 
         if len(volts) == 0:
@@ -86,6 +85,11 @@ class BatteryLogQualityModel(BaseLogQualityAnalysisModel):
 
     def check_current(self) -> list[QualityIssue]:
         issues: list[QualityIssue] = []
+
+        if not self.field_available("BAT", "Curr"):
+            issues.append(QualityIssue(_("Curr field not present in this firmware's BAT schema")))
+            return issues
+
         current = self.log_data.get_field("BAT", "Curr")
         if len(current) == 0:
             issues.append(QualityIssue(_("Current values missing from BAT records")))
@@ -93,6 +97,11 @@ class BatteryLogQualityModel(BaseLogQualityAnalysisModel):
 
     def check_curr_total(self) -> list[QualityIssue]:
         issues: list[QualityIssue] = []
+
+        if not self.field_available("BAT", "CurrTot"):
+            issues.append(QualityIssue(_("CurrTot field not present in this firmware's BAT schema")))
+            return issues
+
         cur_tot = self.log_data.get_field("BAT", "CurrTot")
         if len(cur_tot) == 0:
             issues.append(QualityIssue(_("CurrTot missing from BAT records")))

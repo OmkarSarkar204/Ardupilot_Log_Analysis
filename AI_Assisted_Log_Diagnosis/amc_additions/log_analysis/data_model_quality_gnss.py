@@ -31,8 +31,7 @@ class GPSLogQualityModel(BaseLogQualityAnalysisModel):
             issues += check()
         issues += self.check_parameters()
 
-        resolved = find_step_for_message(self.configuration_steps, "GPS")
-        name = resolved[1]["GPS"]["name"] if resolved else "GPS"
+        _, name = self.resolve_message_step("GPS", "GPS")
         return self.build_result(issues, name)
 
     def _diagnose_absence(self) -> LogQualityResult:
@@ -40,9 +39,7 @@ class GPSLogQualityModel(BaseLogQualityAnalysisModel):
         bitmask = self.parameters.get("LOG_BITMASK")
         log_bit = find_log_bit_in_apm_file(self.log_bitmask_doc, "GPS") if self.log_bitmask_doc else None
 
-        resolved = find_step_for_message(self.configuration_steps, "GPS")
-        step, related = resolved or ("", {})
-        name = related.get("GPS", {}).get("name", "GPS")
+        step, name = self.resolve_message_step("GPS", "GPS")
 
         if log_bit is not None and bitmask is not None and (int(bitmask) & (1 << log_bit)) == 0:
             reason = _("GPS logging is disabled in LOG_BITMASK")
@@ -56,6 +53,11 @@ class GPSLogQualityModel(BaseLogQualityAnalysisModel):
     def check_status(self) -> list[QualityIssue]:
         """Validate GPS fix status."""
         issues: list[QualityIssue] = []
+
+        if not self.field_available("GPS", "Status"):
+            issues.append(QualityIssue(_("Status field not present in this firmware's GPS schema")))
+            return issues
+
         status = self.log_data.get_field("GPS", "Status")
         if len(status) == 0:
             issues.append(QualityIssue(_("GPS fix status missing from GPS records")))
