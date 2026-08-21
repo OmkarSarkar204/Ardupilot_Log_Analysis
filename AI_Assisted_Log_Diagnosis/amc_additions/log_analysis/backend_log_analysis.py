@@ -1,86 +1,107 @@
 """
-ArduPilot log analysis manager.
+Backend orchestration for ArduPilot log analysis.
 
-Coordinates log metadata extraction, quality validation, and subsystem quality
-analysis into a single summary object for the Methodic Configurator frontend.
+This module coordinates side-effecting data loading and pure data-model
+analysis so frontends do not need to know the parser sequence.
 
 SPDX-FileCopyrightText: 2024-2026 Amilcar do Carmo Lucas <amilcar.lucas@iav.de>
+
+SPDX-FileCopyrightText: 2026 Omkar Sarkar <omkarsarkar24@gmail.com>
 
 SPDX-License-Identifier: GPL-3.0-or-later
 """
 
-from dataclasses import dataclass
+from collections.abc import Callable
 from typing import Any
 
-from ardupilot_methodic_configurator.log_analysis.backend_log_extraction import LogData
-from ardupilot_methodic_configurator.log_analysis.backend_log_quality_check import (
-    PMStatus,
-    StepValidationResult,
-    get_pm_status,
-    load_configuration_steps,
-    validate_configuration_steps,
+from ardupilot_methodic_configurator.log_analysis.backend_log_extraction import extract_log
+from ardupilot_methodic_configurator.log_analysis.data_model_log_analysis import (
+    LogSummary,
+    analyze_log,
+    validate_log_matches_vehicle,
 )
-from ardupilot_methodic_configurator.log_analysis.data_model_quality_base import LogQualityResult
-from ardupilot_methodic_configurator.log_analysis.data_model_quality_battery import BatteryLogQualityModel
-from ardupilot_methodic_configurator.log_analysis.data_model_quality_gnss import GPSLogQualityModel
-
-QUALITY_MODELS = [BatteryLogQualityModel, GPSLogQualityModel]
+from ardupilot_methodic_configurator.log_analysis.data_model_log_analysis_context import LogAnalysisContext
+from ardupilot_methodic_configurator.log_analysis.data_model_log_data import LogData
+from ardupilot_methodic_configurator.log_analysis.utils import APMDoc
 
 
-@dataclass
-class LogSummary:
-    """Summary of a parsed ArduPilot log."""
-
-    flight_duration_sec: float | None
-    file_size_bytes: int
-    total_messages: int
-    message_types: int
-    parameter_count: int
-    pm_status: PMStatus | None
-    quality_results: list[LogQualityResult]
-    step_results: list[StepValidationResult]
-
-
-def analyze_log(
+def analyze_log_data(  # pylint: disable=too-many-arguments
     log_data: LogData,
-    parameters: dict[str, float],
-    vehicle_components: dict[str, Any] | None = None,
-    log_bitmask_doc: str | None = None,
+    *,
+    project_vehicle_type: object,
+    project_firmware_version: object,
+    vehicle_components: dict[str, Any] | None,
+    configuration_steps: dict[str, Any] | None,
+    apm_doc: APMDoc | None,
+    validate_project: bool = True,
+) -> LogSummary:
+    """Validate and analyze already extracted log data."""
+    if validate_project:
+        if log_data.vehicle_type is None or log_data.firmware_version is None:
+            msg = "No firmware version information found in parsed log"
+            raise ValueError(msg)
+        validate_log_matches_vehicle(
+            log_data.vehicle_type,
+            log_data.firmware_version,
+            project_vehicle_type,
+            project_firmware_version,
+        )
+
+    parameters = {
+        record["Name"]: float(record["Value"])
+        for record in log_data.iter_message_records("PARM")
+        if record.get("Name") and record.get("Value") is not None
+    }
+    context = LogAnalysisContext(
+        parameters=parameters,
+        configuration_steps=configuration_steps or {},
+        vehicle_components=vehicle_components or {},
+        apm_doc=apm_doc,
+    )
+    return analyze_log(log_data, context)
+
+
+def analyze_log_file(  # noqa: PLR0913 # pylint: disable=too-many-arguments
+    filepath: str,
+    *,
+    project_vehicle_type: object,
+    project_firmware_version: object,
+    vehicle_components: dict[str, Any] | None,
+    configuration_steps: dict[str, Any] | None,
+    apm_doc: APMDoc | None,
+    log_vehicle_type: str | None = None,
+    log_firmware_version: tuple[int, int, int] | None = None,
+    validate_project: bool = True,
+    progress_callback: Callable[[int, int], None] | None = None,
 ) -> LogSummary:
     """
-    Run all log quality analyses and return a summary suitable for the frontend.
+    Load a .bin log, validate it against the active project, and return an analysis summary.
 
     Args:
-        log_data: Parsed log.
-        parameters: Vehicle parameters extracted from the log.
-        vehicle_components: Optional vehicle component database.
-        log_bitmask_doc: Raw "Bitmask" field string from apm.pdef.xml
-
-    Returns:
-        Complete log analysis summary.
+        filepath: Path to the ArduPilot .bin log file.
+        project_vehicle_type: Vehicle type from the active project.
+        project_firmware_version: Firmware version from the active project.
+        vehicle_components: Already loaded vehicle component data.
+        configuration_steps: Already loaded Methodic Configurator steps.
+        apm_doc: Already loaded parameter metadata.
+        log_vehicle_type: Optional vehicle type override for callers that already know the log identity.
+        log_firmware_version: Optional firmware version override for callers that already know the log identity.
+        validate_project: Whether to reject logs that do not match the active project.
+        progress_callback: Optional callback receiving second-pass parser progress as (current, total).
 
     """
-    if vehicle_components is None:
-        vehicle_components = {}
+    log_data = extract_log(filepath, progress_callback=progress_callback)
 
-    configuration_steps = load_configuration_steps("ArduCopter") or {}
+    if log_vehicle_type is not None and log_firmware_version is not None:
+        log_data.vehicle_type = log_vehicle_type
+        log_data.firmware_version = log_firmware_version
 
-    pm_status = get_pm_status(log_data)
-
-    quality_results: list[LogQualityResult] = [
-        model(log_data, parameters, configuration_steps, log_bitmask_doc, vehicle_components).check()
-        for model in QUALITY_MODELS
-    ]
-
-    step_results = validate_configuration_steps(log_data, configuration_steps, vehicle_type="ArduCopter")
-
-    return LogSummary(
-        flight_duration_sec=log_data.flight_duration_sec,
-        file_size_bytes=log_data.log_file_size,
-        total_messages=sum(log_data.msg_count.values()),
-        message_types=len(log_data.schemas),
-        parameter_count=len(parameters),
-        pm_status=pm_status,
-        quality_results=quality_results,
-        step_results=step_results,
+    return analyze_log_data(
+        log_data,
+        project_vehicle_type=project_vehicle_type,
+        project_firmware_version=project_firmware_version,
+        vehicle_components=vehicle_components,
+        configuration_steps=configuration_steps,
+        apm_doc=apm_doc,
+        validate_project=validate_project,
     )

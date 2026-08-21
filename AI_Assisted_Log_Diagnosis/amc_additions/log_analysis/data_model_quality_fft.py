@@ -11,13 +11,13 @@ SPDX-License-Identifier: GPL-3.0-or-later
 from ardupilot_methodic_configurator import _
 from ardupilot_methodic_configurator.log_analysis.data_model_log_quality import LogQualityState
 from ardupilot_methodic_configurator.log_analysis.data_model_quality_base import (
-    BaseLogQualityAnalysisModel,
+    BaseLogModel,
     LogQualityResult,
     QualityIssue,
 )
 
 
-class FftLogQualityModel(BaseLogQualityAnalysisModel):
+class FftLogQualityModel(BaseLogModel):
     """Checks presence of raw IMU batch logging data (ISBH and ISBD samples)."""
 
     def check(self) -> LogQualityResult:
@@ -60,8 +60,7 @@ class FftLogQualityModel(BaseLogQualityAnalysisModel):
         """Check that ISBD and ISBH header."""
         records = self.log_data.get_message_columns("ISBD")
         if records is None or len(records) == 0:
-            issues = [QualityIssue(_("ISBH header present but ISBD batch samples are missing"))]
-            return issues  # noqa: RET504
+            return [QualityIssue(_("ISBH header present but ISBD batch samples are missing"))]
 
         issues: list[QualityIssue] = []
         for axis_field in ("x", "y", "z"):
