@@ -1,0 +1,459 @@
+{
+  "schema_version": 1,
+  "log_file": "ardupilot_methodic_configurator/log_analysis/4_5_4.bin",
+  "flight": {
+    "start_time_us": 217356856.0,
+    "end_time_us": 13129716649.0,
+    "duration_us": 12912359793.0
+  },
+  "vehicle_components": {
+    "Format version": 1,
+    "Components": {
+      "Flight Controller": {
+        "Product": {
+          "Manufacturer": "ArduPilot,AET,Airvolute,Aocoda-RC-H743Dual,CSKY,AMOV,GreenSight,Japan Aviation Electronics Industry Ltd.,Taiphoon,mRo,ORBITH743,ORBITH743v2,Horizon31,Dheeran labs,PrincipIoT,Qiotek,Sierra Aerospace,SkySakura",
+          "Model": "MatekH743-bdshot",
+          "Version": "V4",
+          "URL": "https://in.fpvfaster.com/products/matek-h743-slim-flight-controller-30-5x30-5mm?variant=39670769516626"
+        },
+        "Firmware": {
+          "Type": "ArduCopter",
+          "Version": "4.6.3 beta"
+        },
+        "Specifications": {
+          "MCU Series": "STM32H7xx"
+        },
+        "Notes": ""
+      },
+      "Frame": {
+        "Product": {
+          "Manufacturer": "GEPRC",
+          "Model": "MARK5",
+          "Version": "",
+          "URL": ""
+        },
+        "Specifications": {
+          "TOW min Kg": 0.6,
+          "TOW max Kg": 0.75,
+          "Frame class": "Quad"
+        },
+        "Notes": ""
+      },
+      "Battery Monitor": {
+        "Product": {
+          "Manufacturer": "",
+          "Model": "XRotor G2 Analog Voltage & Current",
+          "Version": "",
+          "URL": ""
+        },
+        "Firmware": {
+          "Type": "",
+          "Version": ""
+        },
+        "FC Connection": {
+          "Type": "Analog",
+          "Protocol": "Analog Voltage and Current"
+        },
+        "Notes": "Built into ESC"
+      },
+      "Battery": {
+        "Product": {
+          "Manufacturer": "GEN X POWER",
+          "Model": "",
+          "Version": "",
+          "URL": ""
+        },
+        "Specifications": {
+          "Chemistry": "Lipo",
+          "Volt per cell max": 4.18,
+          "Volt per cell arm": 3.7,
+          "Volt per cell low": 3.5,
+          "Volt per cell crit": 3.3,
+          "Volt per cell min": 3.3,
+          "Number of cells": 6,
+          "Capacity mAh": 1550
+        },
+        "Notes": ""
+      },
+      "ESC": {
+        "Product": {
+          "Manufacturer": "Hobbywing",
+          "Model": "XRotor FPV G2 65A",
+          "Version": "",
+          "URL": "https://www.hobbywing.com/en/products/xrotor-fpv-g2-65a-4in1-esc268"
+        },
+        "Firmware": {
+          "Type": "AM32",
+          "Version": "F421\n"
+        },
+        "FC->ESC Connection": {
+          "Type": "Main Out",
+          "Protocol": "DShot600"
+        },
+        "ESC->FC Telemetry": {
+          "Type": "Main Out",
+          "Protocol": "BDShotOnly"
+        },
+        "Notes": ""
+      },
+      "Motors": {
+        "Product": {
+          "Manufacturer": "XING-E",
+          "Model": "XING-E Pro 2207",
+          "Version": "1800KV",
+          "URL": "https://in.fpvfaster.com/products/iflight-xing-e-pro-2207-2-6s-fpv-nextgen-motor-1800kv-2750kv-for-nazgul?variant=39760146366546"
+        },
+        "Specifications": {
+          "Poles": 14
+        },
+        "Notes": ""
+      },
+      "Propellers": {
+        "Product": {
+          "Manufacturer": "GEMFAN",
+          "Model": "51433 Hurricane 3 ",
+          "Version": "",
+          "URL": "https://www.uavmarketplace.in/products/GEMFAN%2051433%20Hurricane%202L2R%203%20Blade%20Propeller/895789000000944212?srsltid=AfmBOopLvqOyhnD_1i8xBYJCWm4VIimo2Nf2SETCZ2QS08FpsJdN_U5i"
+        },
+        "Specifications": {
+          "Diameter_inches": 5.1
+        },
+        "Notes": ""
+      },
+      "GNSS Receiver": {
+        "Product": {
+          "Manufacturer": "QMC5883",
+          "Model": "Foxeer M10Q",
+          "Version": "",
+          "URL": "https://in.fpvfaster.com/products/foxeer-m10q-250-gps-5883-compass-module"
+        },
+        "Firmware": {
+          "Type": "",
+          "Version": ""
+        },
+        "FC Connection": {
+          "Type": "SERIAL3",
+          "Protocol": "AUTO"
+        },
+        "Notes": ""
+      },
+      "RC Controller": {
+        "Product": {
+          "Manufacturer": "RadioMaster",
+          "Model": "POCKET",
+          "Version": "",
+          "URL": "https://in.fpvfaster.com/products/radiomaster-pocket-radio-transmitter-controller-edgetx-cc2500-elrs-mode-2?variant=40495174910034"
+        },
+        "Firmware": {
+          "Type": "EdgeTX",
+          "Version": ""
+        },
+        "Notes": ""
+      },
+      "RC Transmitter": {
+        "Product": {
+          "Manufacturer": "RadioMaster",
+          "Model": "CC2500 multi-protocol / ELRS 2.4GHz",
+          "Version": "",
+          "URL": ""
+        },
+        "Firmware": {
+          "Type": "",
+          "Version": ""
+        },
+        "Notes": ""
+      },
+      "RC Receiver": {
+        "Product": {
+          "Manufacturer": "RadioMaster",
+          "Model": "RP3",
+          "Version": "V2",
+          "URL": "https://in.fpvfaster.com/products/radiomaster-rp3-expresslrs-2-4ghz-elrs-nano-receiver-dual-antenna"
+        },
+        "Firmware": {
+          "Type": "ExpressLRS 2.4ghz",
+          "Version": ""
+        },
+        "FC Connection": {
+          "Type": "SERIAL7",
+          "Protocol": "CRSF"
+        },
+        "Notes": ""
+      },
+      "Telemetry": {
+        "Product": {
+          "Manufacturer": "ESP32-C6",
+          "Model": "",
+          "Version": "",
+          "URL": ""
+        },
+        "Firmware": {
+          "Type": "",
+          "Version": ""
+        },
+        "FC Connection": {
+          "Type": "None",
+          "Protocol": "None"
+        },
+        "Notes": ""
+      }
+    },
+    "Program version": "4.3.4",
+    "Configuration template": "empty_4.7.x"
+  },
+  "data_quality": [
+    {
+      "available": false,
+      "state": "warning",
+      "reason": "Performance monitor data has quality issues",
+      "issues": [
+        {
+          "message": "Detected 2 scheduler long loops",
+          "config_step": "",
+          "param_name": null,
+          "suggested_value": null,
+          "step_info": null,
+          "param_info": null
+        }
+      ],
+      "name": "System Performance",
+      "related_step": ""
+    },
+    {
+      "available": false,
+      "state": "warning",
+      "reason": "Battery logging enabled but BATT_MONITOR is 0 (monitor disabled)",
+      "issues": [
+        {
+          "message": "Set BATT_MONITOR to enable the battery monitor",
+          "config_step": "10_battery_monitor.param",
+          "param_name": null,
+          "suggested_value": null,
+          "step_info": {
+            "why": "The battery monitor must be configured to match the hardware connection type so that the autopilot correctly reads battery voltage and current",
+            "why_now": "After the battery voltage and failsafe thresholds are set, the monitor hardware connection parameters can be configured",
+            "blog_text": "Configure the battery monitor hardware connection type, protocol and calibration values",
+            "blog_url": "https://ardupilot.github.io/MethodicConfigurator/TUNING_GUIDE_ArduCopter#65-configure-the-primary-battery-monitor",
+            "wiki_text": "Battery Monitors (aka Power Monitors/Modules) - BATT_* parameters",
+            "wiki_url": "https://ardupilot.org/copter/docs/common-powermodule-landingpage.html"
+          },
+          "param_info": null
+        }
+      ],
+      "name": "Battery",
+      "related_step": "10_battery_monitor.param"
+    },
+    {
+      "available": true,
+      "state": "info",
+      "reason": "GPS data present and good for analysis",
+      "issues": [],
+      "name": "GPS",
+      "related_step": ""
+    },
+    {
+      "available": false,
+      "state": "warning",
+      "reason": "ESC telemetry not logged",
+      "issues": [
+        {
+          "message": "Set MOT_PWM_TYPE to a DShot variant for ESC telemetry support",
+          "config_step": "09_esc_telemetry.param",
+          "param_name": null,
+          "suggested_value": null,
+          "step_info": {
+            "why": "Proper ESC configuration is crucial for accurate motor control, affecting vehicle performance and safety. It ensures motors respond correctly to control signals and fail safely in various flight conditions.",
+            "why_now": "Pre-requires remote control configuration. Uses GCS telemetry if available. Setting up ESCs early allows for initial motor tests and ensures a stable base for further tuning and flight testing without risking damage to the vehicle.",
+            "blog_text": "Configure settings for the Electronic Speed Controllers (ESCs), including PWM range and failsafe behavior",
+            "blog_url": "https://ardupilot.github.io/MethodicConfigurator/TUNING_GUIDE_ArduCopter#64-configure-the-esc",
+            "wiki_text": "ESC (Electronic Speed Controls)",
+            "wiki_url": "https://ardupilot.org/copter/docs/common-esc-guide.html"
+          },
+          "param_info": null
+        }
+      ],
+      "name": "ESC telemetry",
+      "related_step": ""
+    },
+    {
+      "available": true,
+      "state": "info",
+      "reason": "IMU data present and good for analysis",
+      "issues": [],
+      "name": "IMU",
+      "related_step": ""
+    },
+    {
+      "available": true,
+      "state": "info",
+      "reason": "VIBE data present and good for analysis",
+      "issues": [],
+      "name": "VIBE",
+      "related_step": ""
+    },
+    {
+      "available": false,
+      "state": "warning",
+      "reason": "Raw IMU batch logging is disabled (INS_LOG_BAT_MASK is 0)",
+      "issues": [
+        {
+          "message": "Set INS_LOG_BAT_MASK to enable raw IMU batch logging for FFT analysis",
+          "config_step": "",
+          "param_name": null,
+          "suggested_value": null,
+          "step_info": null,
+          "param_info": null
+        }
+      ],
+      "name": "Batch log header(ISBH)",
+      "related_step": ""
+    },
+    {
+      "available": true,
+      "state": "info",
+      "reason": "ERR data present and good for analysis",
+      "issues": [],
+      "name": "ERR",
+      "related_step": ""
+    },
+    {
+      "available": true,
+      "state": "warning",
+      "reason": "PM data has quality issues",
+      "issues": [
+        {
+          "message": "InE field not present in this firmware's PM schema",
+          "config_step": "",
+          "param_name": null,
+          "suggested_value": null,
+          "step_info": null,
+          "param_info": null
+        },
+        {
+          "message": "ErC field not present in this firmware's PM schema",
+          "config_step": "",
+          "param_name": null,
+          "suggested_value": null,
+          "step_info": null,
+          "param_info": null
+        }
+      ],
+      "name": "PM",
+      "related_step": ""
+    },
+    {
+      "available": true,
+      "state": "info",
+      "reason": "ARM data present and good for analysis",
+      "issues": [],
+      "name": "ARM",
+      "related_step": ""
+    },
+    {
+      "available": true,
+      "state": "info",
+      "reason": "MODE data present and good for analysis",
+      "issues": [],
+      "name": "MODE",
+      "related_step": ""
+    }
+  ],
+  "analysis": [
+    {
+      "name": "Battery Analysis",
+      "status": "pending",
+      "reason": "Battery logging enabled but BATT_MONITOR is 0 (monitor disabled)",
+      "issues": [
+        "Set BATT_MONITOR to enable the battery monitor"
+      ]
+    },
+    {
+      "name": "ESC telemetry Analysis",
+      "status": "pending",
+      "reason": "ESC telemetry not logged",
+      "issues": [
+        "Set MOT_PWM_TYPE to a DShot variant for ESC telemetry support"
+      ]
+    },
+    {
+      "available": true,
+      "outcomes": [
+        {
+          "message": "IMU 1 temperature calibration is not enabled. Consider running it for better accuracy across temperature changes.",
+          "timestamp_us": null,
+          "value": 0.0,
+          "related_step": "02_imu_temperature_calibration_setup.param",
+          "param_name": "INS_TCAL1_ENABLE",
+          "suggested_value": 2.0,
+          "step_info": {
+            "why": "The IMU drift is temperature dependent and can cause gyro and/or accel inconsistent errors",
+            "why_now": "You need to cool down the FC to perform this calibration. It is easier to do before the FC is mounted in the vehicle",
+            "blog_text": "IMU (Inertial Measurement Unit) temperature calibration setup",
+            "blog_url": "https://ardupilot.github.io/MethodicConfigurator/TUNING_GUIDE_ArduCopter#41-setup-imu-temperature-calibration",
+            "wiki_text": "IMU Temperature Calibration",
+            "wiki_url": "https://ardupilot.org/copter/docs/common-imutempcal.html"
+          },
+          "param_info": {
+            "human_name": "Enable temperature calibration",
+            "documentation": "Enable the use of temperature calibration parameters for this IMU. For automatic learning set to 2 and also set the INS_TCALn_TMAX to the target temperature, then reboot",
+            "range": null,
+            "units": null
+          }
+        },
+        {
+          "message": "IMU 2 temperature calibration is not enabled. Consider running it for better accuracy across temperature changes.",
+          "timestamp_us": null,
+          "value": 0.0,
+          "related_step": null,
+          "param_name": "INS_TCAL2_ENABLE",
+          "suggested_value": null,
+          "step_info": null,
+          "param_info": {
+            "human_name": "Enable temperature calibration",
+            "documentation": "Enable the use of temperature calibration parameters for this IMU. For automatic learning set to 2 and also set the INS_TCALn_TMAX to the target temperature, then reboot",
+            "range": null,
+            "units": null
+          }
+        },
+        {
+          "message": "IMU 3 temperature calibration is not enabled. Consider running it for better accuracy across temperature changes.",
+          "timestamp_us": null,
+          "value": 0.0,
+          "related_step": null,
+          "param_name": "INS_TCAL3_ENABLE",
+          "suggested_value": null,
+          "step_info": null,
+          "param_info": {
+            "human_name": "Enable temperature calibration",
+            "documentation": "Enable the use of temperature calibration parameters for this IMU. For automatic learning set to 2 and also set the INS_TCALn_TMAX to the target temperature, then reboot",
+            "range": null,
+            "units": null
+          }
+        }
+      ],
+      "name": "IMU Analysis",
+      "reason": "IMU analysis complete",
+      "related_step": "21_motor_notch_filter_setup.param",
+      "status": "completed"
+    },
+    {
+      "available": true,
+      "outcomes": [
+        {
+          "message": "VibeZ peaked at 39.7 m/s/s, above the 30 m/s/s level that may cause position/altitude hold problems.",
+          "timestamp_us": 11536054599.0,
+          "value": 39.718692779541016,
+          "related_step": null,
+          "param_name": null,
+          "suggested_value": null,
+          "step_info": null,
+          "param_info": null
+        }
+      ],
+      "name": "Vibration Analysis",
+      "reason": "Vibration analysis complete",
+      "related_step": "21_motor_notch_filter_setup.param",
+      "status": "completed"
+    }
+  ]
+}
