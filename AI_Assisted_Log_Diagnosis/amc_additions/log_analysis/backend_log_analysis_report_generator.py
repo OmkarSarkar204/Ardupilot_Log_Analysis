@@ -1,9 +1,11 @@
 """
-Builds a report matching log_analysis_schema.json from a LogSummary.
+Builds a report matching log_analysis_report_schema.json from a LogSummary.
 
-SPDX-FileCopyrightText: 2026 Omkar Sarkar <omkarsarkar24@gmail.com>
+This file is part of ArduPilot Methodic Configurator. https://github.com/ArduPilot/MethodicConfigurator
 
 SPDX-FileCopyrightText: 2024-2026 Amilcar do Carmo Lucas <amilcar.lucas@iav.de>
+
+SPDX-FileCopyrightText: 2026 Omkar Sarkar <omkarsarkar24@gmail.com>
 
 SPDX-License-Identifier: GPL-3.0-or-later
 """
@@ -13,7 +15,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
-from ardupilot_methodic_configurator.log_analysis.data_model_log_analysis import QUALITY_AND_ANALYSIS_MODELS, LogSummary
+from ardupilot_methodic_configurator.log_analysis.data_model_log_analysis import AVAILABILITY_AND_ANALYSIS_MODELS, LogSummary
 from ardupilot_methodic_configurator.log_analysis.data_model_log_data import LogData
 
 SCHEMA_VERSION = 1
@@ -77,7 +79,7 @@ def _enrich_issue(issue: dict[str, Any], configuration_steps: dict[str, Any], ap
     return issue
 
 
-def _enrich_quality_result(
+def _enrich_availability_result(
     result_dict: dict[str, Any], configuration_steps: dict[str, Any], apm_doc: dict[str, Any] | None
 ) -> dict[str, Any]:
     result_dict["issues"] = [
@@ -98,19 +100,19 @@ def _analysis_entries(
     summary: LogSummary, configuration_steps: dict[str, Any], apm_doc: dict[str, Any] | None
 ) -> list[dict[str, Any]]:
     """
-    Build completed/pending analysis entries from summary.quality_results/analysis_results.
+    Build completed/pending analysis entries from summary.availability_results/analysis_results.
 
-    ASSUMPTION being relied on: analyze_log() appends quality_results in
-    QUALITY_AND_ANALYSIS_MODELS order, with at most one extra "System Performance"
+    ASSUMPTION being relied on: analyze_log() appends availability_results in
+    AVAILABILITY_AND_ANALYSIS_MODELS order, with at most one extra "System Performance"
     entry prepended (from PM validation) that is not part of the registry. That
     offset is detected below and asserted, so this fails loudly instead of
     silently mismatching if analyze_log's ordering ever changes.
     """
-    offset = len(summary.quality_results) - len(QUALITY_AND_ANALYSIS_MODELS)
+    offset = len(summary.availability_results) - len(AVAILABILITY_AND_ANALYSIS_MODELS)
     if offset not in (0, 1):
         msg = (
-            f"Unexpected quality_results length ({len(summary.quality_results)}) vs "
-            f"QUALITY_AND_ANALYSIS_MODELS length ({len(QUALITY_AND_ANALYSIS_MODELS)}); "
+            f"Unexpected availability_results length ({len(summary.availability_results)}) vs "
+            f"AVAILABILITY_AND_ANALYSIS_MODELS length ({len(AVAILABILITY_AND_ANALYSIS_MODELS)}); "
             "the offset assumption in _analysis_entries no longer holds, fix this mapping."
         )
         raise AssertionError(msg)
@@ -118,13 +120,13 @@ def _analysis_entries(
     analysis_iter = iter(summary.analysis_results)
     entries: list[dict[str, Any]] = []
 
-    for i, (_quality_cls, analysis_cls) in enumerate(QUALITY_AND_ANALYSIS_MODELS):
+    for i, (_availability_cls, analysis_cls) in enumerate(AVAILABILITY_AND_ANALYSIS_MODELS):
         if analysis_cls is None:
             continue
 
-        quality_result = summary.quality_results[i + offset]
+        availability_result = summary.availability_results[i + offset]
 
-        if quality_result.available:
+        if availability_result.available:
             analysis_result = next(analysis_iter)
             entry = {**asdict(analysis_result), "status": "completed"}
             entry["outcomes"] = [
@@ -132,7 +134,12 @@ def _analysis_entries(
             ]
             entries.append(entry)
         else:
-            entries.append({"name": f"{quality_result.name} Analysis", "status": "pending"})
+            entries.append({
+                "name": f"{availability_result.name} Analysis",
+                "status": "pending",
+                "reason": availability_result.reason,
+                "issues": [issue.message for issue in availability_result.issues],
+            })
 
     return entries
 
@@ -143,14 +150,16 @@ def build_report(
     vehicle_components: dict[str, Any],
     configuration_steps: dict[str, Any],
     apm_doc: dict[str, Any] | None,
+    log_filename: str,
 ) -> dict[str, Any]:
     """Assemble the schema-conformant report from an already-computed LogSummary."""
     return {
         "schema_version": SCHEMA_VERSION,
+        "log_file": log_filename,
         "flight": _flight_timeline(log_data),
         "vehicle_components": vehicle_components,
-        "data_quality": [
-            _enrich_quality_result(asdict(result), configuration_steps, apm_doc) for result in summary.quality_results
+        "data_availability": [
+            _enrich_availability_result(asdict(result), configuration_steps, apm_doc) for result in summary.availability_results
         ],
         "analysis": _analysis_entries(summary, configuration_steps, apm_doc),
     }

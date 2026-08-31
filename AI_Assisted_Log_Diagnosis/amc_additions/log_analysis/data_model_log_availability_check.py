@@ -1,5 +1,5 @@
 """
-ArduPilot log quality checker.
+ArduPilot log availability checker.
 
 Validates that the messages and params required by the Methodic Configurator configuration
 steps are present, also checks if a specific analysis can be performed and the logged records match their FMT schema.
@@ -15,8 +15,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+import numpy as np
+
 from ardupilot_methodic_configurator import _
-from ardupilot_methodic_configurator.log_analysis.data_model_log_quality import (
+from ardupilot_methodic_configurator.log_analysis.data_model_log_availability import (
     MessageValidation,
     PMStatus,
     StepValidationResult,
@@ -32,8 +34,6 @@ from ardupilot_methodic_configurator.log_analysis.utils import (
 )
 
 if TYPE_CHECKING:
-    import numpy as np
-
     from ardupilot_methodic_configurator.log_analysis.data_model_log_data import LogData, MessageSchema
 
 _MAX_HEALTHY_AVG_CPU = 80.0  # percent
@@ -123,9 +123,12 @@ def get_pm_status(log_data: LogData) -> PMStatus | None:
     available = set(columns.dtype.names or ())
 
     load = log_data.get_field("PM", "Load") if "Load" in available else None
-    nlon = log_data.get_field("PM", "NLon", scaled=False) if "NLon" in available else None
-    max_t = log_data.get_field("PM", "MaxT", scaled=False) if "MaxT" in available else None
-    mem = log_data.get_field("PM", "Mem", scaled=False) if "Mem" in available else None
+    nlon = log_data.get_field("PM", "NLon") if "NLon" in available else None
+    max_t = log_data.get_field("PM", "MaxT") if "MaxT" in available else None
+    mem = log_data.get_field("PM", "Mem") if "Mem" in available else None
+
+    if any(values is not None and not np.isfinite(values).all() for values in (load, nlon, max_t, mem)):
+        return PMStatus(0.0, 0.0, 0, 0, 0, None)
 
     # compute values into locals first
     avg_cpu_load = float(load.mean()) if load is not None else 0.0
@@ -153,6 +156,33 @@ def get_pm_status(log_data: LogData) -> PMStatus | None:
     )
 
 
+def _pm_non_finite_issues(log_data: LogData, available: set[str]) -> list[str]:
+    """Return one issue for each PM field that contains non-finite samples."""
+    return [
+        _("{field} contains non-finite telemetry values").format(field=field_name)
+        for field_name in ("Load", "NLon", "MaxT", "Mem", "InE", "ErC", "ErrL")
+        if field_name in available and not np.isfinite(log_data.get_field("PM", field_name)).all()
+    ]
+
+
+def _pm_error_signal_issues(log_data: LogData, available: set[str]) -> list[str]:
+    """Return issues reported by finite PM error counters and masks."""
+    issues: list[str] = []
+    for field_name, reducer, message in (
+        ("InE", np.max, _("Internal firmware errors were detected (InE)")),
+        ("ErC", np.max, _("Internal error count: {count}")),
+        ("ErrL", np.max, _("An internal error line was recorded (ErrL)")),
+        ("NLon", np.sum, _("Detected {count} scheduler long loops")),
+    ):
+        if field_name in available:
+            values = log_data.get_field("PM", field_name)
+            if np.isfinite(values).all():
+                count = int(reducer(values))
+                if count > 0:
+                    issues.append(message.format(count=count) if field_name in {"ErC", "NLon"} else message)
+    return issues
+
+
 def check_cpu_performance_message(log_data: LogData) -> MessageValidation:
     """
     Validate the PM (Performance Monitor) message for internal errors and health.
@@ -165,34 +195,8 @@ def check_cpu_performance_message(log_data: LogData) -> MessageValidation:
         return MessageValidation(valid=False, issues=[_("PM message not logged")])
 
     available = set(columns.dtype.names or ())
-    issues: list[str] = []
-
-    # Internal error mask
-    if "InE" in available:
-        ine = log_data.get_field("PM", "InE", scaled=False)
-        if ine.max() > 0:
-            issues.append(_("Internal firmware errors were detected (InE)"))
-
-    # Internal error count
-    if "ErC" in available:
-        erc = log_data.get_field("PM", "ErC", scaled=False)
-        count = int(erc.max())
-        if count > 0:
-            issues.append(_("Internal error count: {count}").format(count=count))
-
-    # Internal error line number
-    if "ErrL" in available:
-        errl = log_data.get_field("PM", "ErrL", scaled=False)
-        if errl.max() > 0:
-            issues.append(_("An internal error line was recorded (ErrL)"))
-
-    # Long loops
-    if "NLon" in available:
-        nlon = log_data.get_field("PM", "NLon", scaled=False)
-        count = int(nlon.sum())
-
-        if count > 0:
-            issues.append(_("Detected {count} scheduler long loops").format(count=count))
+    issues = _pm_non_finite_issues(log_data, available)
+    issues.extend(_pm_error_signal_issues(log_data, available))
 
     return MessageValidation(valid=not issues, issues=issues)
 
@@ -217,10 +221,14 @@ def validate_fmt_schema(schema: MessageSchema, columns: np.ndarray | None) -> Me
         issues.append(_("Missing format string"))
     if schema.length <= 0:
         issues.append(_("Invalid message length"))
-    if schema.units and len(schema.units) != len(schema.fields):
-        issues.append(_("Unit count mismatch"))
+    if len(schema.stored_units) != len(schema.fields):
+        issues.append(_("Stored unit count mismatch"))
+    if len(schema.scaled_units) != len(schema.fields):
+        issues.append(_("Scaled unit count mismatch"))
     if schema.multipliers and len(schema.multipliers) != len(schema.fields):
         issues.append(_("Multiplier count mismatch"))
+    if len(schema.multipliers_applied_at_ingest) != len(schema.fields):
+        issues.append(_("Multiplier ingestion state count mismatch"))
 
     if columns is None or columns.size == 0:
         issues.append(_("{message} has no logging data").format(message=schema.name))

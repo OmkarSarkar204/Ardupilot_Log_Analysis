@@ -1,5 +1,5 @@
 """
-Data model for ESC quality check.
+Data model for ESC availability check.
 
 SPDX-FileCopyrightText: 2024-2026 Amilcar do Carmo Lucas <amilcar.lucas@iav.de>
 
@@ -12,35 +12,39 @@ import statistics
 
 from ardupilot_methodic_configurator import _
 from ardupilot_methodic_configurator.data_model_par_dict import is_within_tolerance
-from ardupilot_methodic_configurator.log_analysis.data_model_log_analysis_result import LogAnalysis, LogAnalysisResult
-from ardupilot_methodic_configurator.log_analysis.data_model_log_quality import LogQualityState
-from ardupilot_methodic_configurator.log_analysis.data_model_quality_base import (
-    BaseLogModel,
-    LogQualityResult,
-    QualityIssue,
+from ardupilot_methodic_configurator.log_analysis.data_model_availability_base import (
+    AvailabilityIssue,
+    BaseLogAnalysisModel,
+    BaseLogAvailabilityModel,
+    LogAvailabilityResult,
 )
+from ardupilot_methodic_configurator.log_analysis.data_model_log_analysis_result import LogAnalysis, LogAnalysisResult
+from ardupilot_methodic_configurator.log_analysis.data_model_log_availability import LogAvailabilityState
 from ardupilot_methodic_configurator.log_analysis.data_model_vehicle_overview_param_metadata import enum_value_name
 from ardupilot_methodic_configurator.log_analysis.utils import find_matching_param_values
 
 _MOT_SPIN_MIN_REQUIRED_MARGIN = 0.03
+_MIN_ZERO_RPM_OBSERVATION_SECONDS = 1.0
+_MIN_ZERO_RPM_ARMED_COVERAGE = 0.5
+_DSHOT_OUTPUT_RATE_WARN_THRESHOLD = 1000.0  # Amilcar's stated threshold, Hz
 
 
-class EscLogQualityModel(BaseLogModel):
-    """Checks ESC telemetry and configuration quality."""
+class EscLogAvailabilityModel(BaseLogAvailabilityModel):
+    """Checks ESC telemetry and configuration availability."""
 
-    def check(self) -> LogQualityResult:
+    def check(self) -> LogAvailabilityResult:
         records = self.log_data.get_message_columns("ESC")
         if records is None or len(records) == 0:
             return self._diagnose_absence()
 
-        issues: list[QualityIssue] = []
+        issues: list[AvailabilityIssue] = []
         for check in (self.check_rpm, self.check_current, self.check_error_rate):
             issues += check()
 
         _, name = self.resolve_message_step("ESC", "ESC")
         return self.build_result(issues, name)
 
-    def _diagnose_absence(self) -> LogQualityResult:
+    def _diagnose_absence(self) -> LogAvailabilityResult:
         """Diagnose why ESC data is absent."""
         step, name = self.resolve_message_step("ESC", "ESC")
 
@@ -51,7 +55,7 @@ class EscLogQualityModel(BaseLogModel):
         if pwm_type is not None and str(int(pwm_type)) not in dshot_values:
             reason = _("ESC telemetry not logged")
             issues = [
-                QualityIssue(
+                AvailabilityIssue(
                     _("Set MOT_PWM_TYPE to a DShot variant for ESC telemetry support"),
                     self.step_for_parameter("MOT_PWM_TYPE"),
                 )
@@ -59,18 +63,20 @@ class EscLogQualityModel(BaseLogModel):
         elif scr_enabled == 0:
             reason = _("ESC telemetry not logged, scripting is disabled")
             issues = [
-                QualityIssue(
+                AvailabilityIssue(
                     _("Enable SCR_ENABLE if using scripted ESC telemetry"),
                     self.step_for_parameter("SCR_ENABLE"),
                 )
             ]
         else:
             reason = _("ESC telemetry not logged, check ESC hardware supports telemetry and is wired correctly")
-            issues = [QualityIssue(_("No ESC messages found"), step)]
+            issues = [AvailabilityIssue(_("No ESC messages found"), step)]
 
-        return LogQualityResult(available=False, state=LogQualityState.WARNING, reason=reason, issues=issues, name=name)
+        return LogAvailabilityResult(
+            available=False, state=LogAvailabilityState.WARNING, reason=reason, issues=issues, name=name
+        )
 
-    def check_rpm(self) -> list[QualityIssue]:
+    def check_rpm(self) -> list[AvailabilityIssue]:
         """Validate logged ESC RPM values."""
         _rpm, issues = self.field_values_or_issue(
             "ESC",
@@ -80,7 +86,7 @@ class EscLogQualityModel(BaseLogModel):
         )
         return issues
 
-    def check_current(self) -> list[QualityIssue]:
+    def check_current(self) -> list[AvailabilityIssue]:
         """Validate logged ESC current values."""
         _current, issues = self.field_values_or_issue(
             "ESC",
@@ -90,7 +96,7 @@ class EscLogQualityModel(BaseLogModel):
         )
         return issues
 
-    def check_error_rate(self) -> list[QualityIssue]:
+    def check_error_rate(self) -> list[AvailabilityIssue]:
         """Validate ESC error rate."""
         err, issues = self.field_values_or_issue(
             "ESC",
@@ -100,15 +106,15 @@ class EscLogQualityModel(BaseLogModel):
         )
         if err is not None and err.max() > 0:
             step, _name = self.resolve_message_step("ESC", "ESC")
-            issues.append(QualityIssue(_("ESC error rate detected on at least one ESC instance"), step))
+            issues.append(AvailabilityIssue(_("ESC error rate detected on at least one ESC instance"), step))
         return issues
 
 
-class EscLogAnalysis(BaseLogModel):
+class EscLogAnalysis(BaseLogAnalysisModel):
     """
     ESC analysis on the data from the log.
 
-    Runs after ESC quality model passes with the required data.
+    Runs after ESC availability model passes with the required data.
     """
 
     def analyse(self) -> LogAnalysisResult:
@@ -133,31 +139,31 @@ class EscLogAnalysis(BaseLogModel):
         )
 
     def _armed_time_windows(self) -> list[tuple[float, float]]:
-        """Build (arm_time_us, disarm_time_us) pairs from ARM message transitions."""
+        """Build canonical-second arm/disarm windows from ARM message transitions."""
         columns = self.log_data.get_message_columns("ARM")
         names = tuple(columns.dtype.names or ()) if columns is not None else ()
         if columns is None or "ArmState" not in names or "TimeUS" not in names:
             return []
 
-        arm_state = self.log_data.get_field("ARM", "ArmState", scaled=False)
-        time_us = self.log_data.get_field("ARM", "TimeUS", scaled=False)
+        arm_state = self.log_data.get_field("ARM", "ArmState")
+        time_seconds = self.log_data.get_field("ARM", "TimeUS")
 
         windows: list[tuple[float, float]] = []
         arm_time: float | None = None
-        for state, ts in zip(arm_state, time_us, strict=True):
+        for state, timestamp_seconds in zip(arm_state, time_seconds, strict=True):
             if state and arm_time is None:
-                arm_time = float(ts)
+                arm_time = float(timestamp_seconds)
             elif not state and arm_time is not None:
-                windows.append((arm_time, float(ts)))
+                windows.append((arm_time, float(timestamp_seconds)))
                 arm_time = None
 
         # Vehicle still armed at end of log (no matching disarm event)
-        if arm_time is not None and len(time_us) > 0:
-            windows.append((arm_time, float(time_us[-1])))
+        if arm_time is not None and len(time_seconds) > 0:
+            windows.append((arm_time, float(time_seconds[-1])))
 
         return windows
 
-    def check_rpm_while_armed(self) -> list[LogAnalysis]:
+    def check_rpm_while_armed(self) -> list[LogAnalysis]:  # pylint: disable=too-many-locals
         """Report ESC outputs whose RPM was zero for a sustained period while the vehicle was armed."""
         windows = self._armed_time_windows()
         if not windows:
@@ -168,14 +174,14 @@ class EscLogAnalysis(BaseLogModel):
         if "Instance" not in names or "RPM" not in names or "TimeUS" not in names:
             return []
 
-        instance_numbers = self.log_data.get_field("ESC", "Instance", scaled=False)
+        instance_numbers = self.log_data.get_field("ESC", "Instance")
         rpm_values = self.log_data.get_field("ESC", "RPM")
-        time_us = self.log_data.get_field("ESC", "TimeUS", scaled=False)
+        time_seconds = self.log_data.get_field("ESC", "TimeUS")
 
         outcomes: list[LogAnalysis] = []
         for instance in sorted(set(instance_numbers.tolist())):
             mask = instance_numbers == instance
-            inst_times = time_us[mask]
+            inst_times = time_seconds[mask]
             inst_rpm = rpm_values[mask]
 
             for arm_time, disarm_time in windows:
@@ -183,14 +189,23 @@ class EscLogAnalysis(BaseLogModel):
                 if not window_mask.any():
                     continue
                 windowed_rpm = inst_rpm[window_mask]
-                if windowed_rpm.max() == 0:
+                windowed_times = inst_times[window_mask]
+                observed_duration = float(windowed_times[-1] - windowed_times[0])
+                armed_duration = float(disarm_time - arm_time)
+                has_meaningful_coverage = (
+                    len(windowed_rpm) >= 2
+                    and observed_duration >= _MIN_ZERO_RPM_OBSERVATION_SECONDS
+                    and armed_duration > 0
+                    and observed_duration / armed_duration >= _MIN_ZERO_RPM_ARMED_COVERAGE
+                )
+                if windowed_rpm.max() == 0 and has_meaningful_coverage:
                     outcomes.append(
                         LogAnalysis(
                             message=_(
                                 "ESC output {instance} reported zero RPM throughout an armed period "
                                 "({start:.1f}s to {end:.1f}s), the motor may not have responded."
-                            ).format(instance=int(instance), start=arm_time / 1e6, end=disarm_time / 1e6),
-                            timestamp_us=arm_time,
+                            ).format(instance=int(instance), start=arm_time, end=disarm_time),
+                            timestamp_us=arm_time * 1e6,
                             value=0.0,
                         )
                     )
@@ -233,30 +248,32 @@ class EscLogAnalysis(BaseLogModel):
         if "Instance" not in names or "Err" not in names or "TimeUS" not in names:
             return []
 
-        instance_numbers = self.log_data.get_field("ESC", "Instance", scaled=False)
+        instance_numbers = self.log_data.get_field("ESC", "Instance")
         err_values = self.log_data.get_field("ESC", "Err")
-        time_us = self.log_data.get_field("ESC", "TimeUS", scaled=False)
+        time_seconds = self.log_data.get_field("ESC", "TimeUS")
 
         outcomes: list[LogAnalysis] = []
         for instance in sorted(set(instance_numbers.tolist())):
             mask = instance_numbers == instance
             instance_errs = err_values[mask]
-            instance_times = time_us[mask]
+            instance_times = time_seconds[mask]
 
             peak_err = float(instance_errs.max())
+            if peak_err <= 0:
+                continue
             peak_idx = instance_errs.argmax()
             outcomes.append(
                 LogAnalysis(
                     message=_("ESC output {instance} peak error rate: {err:.1f}%").format(
                         instance=int(instance), err=peak_err
                     ),
-                    timestamp_us=float(instance_times[peak_idx]),
+                    timestamp_us=float(instance_times[peak_idx] * 1e6),
                     value=peak_err,
                 )
             )
         return outcomes
 
-    def check_current_imbalance(self) -> list[LogAnalysis]:
+    def check_current_imbalance(self) -> list[LogAnalysis]:  # pylint: disable=too-many-locals
         """
         Report ESC outputs, average current is separated from the rest.
 
@@ -268,27 +285,34 @@ class EscLogAnalysis(BaseLogModel):
         if "Instance" not in names or "Curr" not in names or "TimeUS" not in names:
             return []
 
-        instance_numbers = self.log_data.get_field("ESC", "Instance", scaled=False)
+        instance_numbers = self.log_data.get_field("ESC", "Instance")
         curr_values = self.log_data.get_field("ESC", "Curr")
-        time_us = self.log_data.get_field("ESC", "TimeUS", scaled=False)
+        time_seconds = self.log_data.get_field("ESC", "TimeUS")
 
         instances = sorted(set(instance_numbers.tolist()))
-        if len(instances) < 3:
+        windows = self._armed_time_windows()
+        if len(instances) < 3 or not windows:
             return []
 
-        means = {inst: float(curr_values[instance_numbers == inst].mean()) for inst in instances}
+        armed_masks = [(time_seconds >= arm_time) & (time_seconds <= disarm_time) for arm_time, disarm_time in windows]
+        armed_mask = armed_masks[0]
+        for window_mask in armed_masks[1:]:
+            armed_mask |= window_mask
+
+        means: dict[float, float] = {}
+        for instance in instances:
+            instance_mask = armed_mask & (instance_numbers == instance)
+            if not instance_mask.any():
+                return []
+            means[instance] = float(curr_values[instance_mask].mean())
         sorted_items = sorted(means.items(), key=lambda kv: kv[1])
         values = [v for _, v in sorted_items]
 
         total_range = values[-1] - values[0]
-        if total_range == 0:
-            return []
-
         gaps = [values[i + 1] - values[i] for i in range(len(values) - 1)]
         max_gap = max(gaps)
         max_gap_idx = gaps.index(max_gap)
-
-        if max_gap <= (total_range - max_gap):
+        if total_range == 0 or max_gap <= (total_range - max_gap):
             return []
 
         lower_group = sorted_items[: max_gap_idx + 1]
@@ -302,50 +326,58 @@ class EscLogAnalysis(BaseLogModel):
         median_curr = statistics.median(values)
         outcomes: list[LogAnalysis] = []
         for inst, inst_mean in outlier_group:
-            mask = instance_numbers == inst
+            mask = armed_mask & (instance_numbers == inst)
             inst_curr = curr_values[mask]
-            inst_times = time_us[mask]
+            inst_times = time_seconds[mask]
             furthest_idx = abs(inst_curr - median_curr).argmax()
 
             outcomes.append(
                 LogAnalysis(
                     message=_(
-                        "ESC output {instance} drew {mean:.2f}A on average,"
+                        "ESC output {instance} drew {mean:.2f}A on average, "
                         "current drawn by the other {n} ESC output(s) (median {median:.2f}A). If unexpected "
                         "for this vehicle's configuration, check for a mechanical or wiring issue."
                     ).format(instance=int(inst), mean=inst_mean, n=len(instances) - len(outlier_group), median=median_curr),
-                    timestamp_us=float(inst_times[furthest_idx]),
+                    timestamp_us=float(inst_times[furthest_idx] * 1e6),
                     value=inst_mean,
                 )
             )
         return outcomes
 
-    _DSHOT_OUTPUT_RATE_WARN_THRESHOLD = 1000.0  # Amilcar's stated threshold, Hz
-
     def check_dshot_output_rate(self) -> list[LogAnalysis]:
         """Check SCHED_LOOP_RATE * SERVO_DSHOT_RATE effective output rate against a minimum threshold."""
         loop_rate = self.parameters.get("SCHED_LOOP_RATE")
         dshot_rate_code = self.parameters.get("SERVO_DSHOT_RATE")
-        if loop_rate is None or dshot_rate_code is None:
+        pwm_type = self.parameters.get("MOT_PWM_TYPE")
+        if loop_rate is None or dshot_rate_code is None or pwm_type is None or self.apm_doc is None:
+            return []
+
+        dshot_values = find_matching_param_values(self.apm_doc, "MOT_PWM_TYPE", "DShot")
+        if str(int(pwm_type)) not in dshot_values:
             return []
 
         label = enum_value_name(self.apm_doc, "SERVO_DSHOT_RATE", dshot_rate_code)
         if label is not None and label.lower() == "1khz":
-            effective_rate = 1000.0
+            effective_rate = _DSHOT_OUTPUT_RATE_WARN_THRESHOLD
         else:
             multiplier = self._dshot_rate_multiplier(dshot_rate_code)
             if multiplier is None:
                 return []  # unknown enum value, skip
             effective_rate = loop_rate * multiplier
 
-        if effective_rate <= 1000.0:
+        if effective_rate <= _DSHOT_OUTPUT_RATE_WARN_THRESHOLD:
             return [
                 LogAnalysis(
                     message=_(
                         "Effective DShot output rate is {rate:.0f}Hz (SCHED_LOOP_RATE={loop:.0f}Hz, "
                         "SERVO_DSHOT_RATE={dshot!r}), at or below the {threshold:.0f}Hz level Amilcar flagged as "
                         "problematic. apm.pdef.xml also states SERVO_DSHOT_RATE should never be set below 500Hz."
-                    ).format(rate=effective_rate, loop=loop_rate, dshot=label, threshold=1000.0),
+                    ).format(
+                        rate=effective_rate,
+                        loop=loop_rate,
+                        dshot=label,
+                        threshold=_DSHOT_OUTPUT_RATE_WARN_THRESHOLD,
+                    ),
                     timestamp_us=None,
                     value=effective_rate,
                     param_name="SERVO_DSHOT_RATE",
@@ -354,9 +386,9 @@ class EscLogAnalysis(BaseLogModel):
             ]
         return []
 
-    def _dshot_rate_multiplier(self, dshot_rate_code: float) -> float | None:  # noqa: PLR0911
+    def _dshot_rate_multiplier(self, dshot_rate_code: float) -> float | None:  # noqa: PLR0911 # pylint: disable=too-many-return-statements
         """
-        Resolve SERVO_DSHOT_RATE's effective multiplier from its apm.pdef.xml enum label.
+        SERVO_DSHOT_RATE's effective multiplier from its apm.pdef.xml enum label.
 
         Returns None if the label can't be parsed (unexpected/unknown enum value).
         """
